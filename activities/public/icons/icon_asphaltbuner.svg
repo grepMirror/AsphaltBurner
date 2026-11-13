@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <defs>
+    <!-- Z2 to Z5 Intensity Gradient for the Flame -->
+    <linearGradient id="flameOuterGrad" x1="160" y1="185" x2="175" y2="35" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4ADE80" />
+      <stop offset="35%" stop-color="#FACC15" />
+      <stop offset="68%" stop-color="#FB923C" />
+      <stop offset="100%" stop-color="#EF4444" />
+    </linearGradient>
+
+    <linearGradient id="flameMidGrad" x1="155" y1="175" x2="170" y2="55" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#86EFAC" />
+      <stop offset="45%" stop-color="#FDE047" />
+      <stop offset="100%" stop-color="#FB923C" />
+    </linearGradient>
+
+    <linearGradient id="flameInnerGrad" x1="150" y1="165" x2="162" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#BBF7D0" />
+      <stop offset="65%" stop-color="#FEF08A" />
+      <stop offset="100%" stop-color="#FACC15" />
+    </linearGradient>
+  </defs>
+
+  <!-- Flame Behind the Shoe -->
+  <g id="flame">
+    <!-- Outer Flame -->
+    <path d="M112 105 C112 80, 126 65, 138 58 C135 72, 143 79, 149 74 C156 54, 174 37, 194 34 C184 53, 197 73, 192 98 C199 93, 205 85, 207 77 C214 97, 211 124, 198 145 C189 160, 176 171, 162 178 L112 135 Z" fill="url(#flameOuterGrad)" />
+
+    <!-- Middle Flame Tongue -->
+    <path d="M124 118 C126 98, 138 86, 149 82 C148 93, 155 98, 160 93 C166 78, 177 67, 188 65 C182 81, 191 96, 187 115 C192 111, 196 106, 198 100 C202 115, 198 134, 188 149 C180 160, 170 168, 159 173 L124 142 Z" fill="url(#flameMidGrad)" />
+
+    <!-- Inner Flame Core -->
+    <path d="M135 130 C138 116, 147 107, 156 104 C155 112, 160 116, 165 112 C169 102, 176 96, 182 95 C179 106, 184 117, 181 129 C177 144, 167 156, 156 164 L135 145 Z" fill="url(#flameInnerGrad)" />
+  </g>
+
+  <!-- Angled Running Shoe -->
+  <g id="running-shoe" transform="rotate(32 128 138)">
+    <!-- Shoe Upper Silhouette -->
+    <path d="M44 128 
+             C44 114, 49 102, 57 102 
+             C63 102, 66 112, 77 114 
+             C88 116, 98 111, 104 103 
+             C108 98, 114 97, 119 100 
+             L166 126 
+             C184 130, 206 134, 212 143 
+             C215 148, 212 155, 204 157 
+             L46 157 
+             C40 157, 38 148, 41 141 
+             Z" fill="#0F172A" />
+
+    <!-- White Midsole -->
+    <path d="M40 153 
+             L210 153 
+             C214 153, 215 161, 207 165 
+             C196 170, 172 171, 138 171 
+             L46 171 
+             C38 171, 35 160, 40 153 Z" fill="#FFFFFF" stroke="#0F172A" stroke-width="5" stroke-linejoin="round" />
+
+    <!-- Midsole Speed Groove -->
+    <path d="M52 162 L152 162" stroke="#0F172A" stroke-width="3.5" stroke-linecap="round" />
+
+    <!-- Dark Outsole & Tread Lugs -->
+    <path d="M44 171 L202 171 C195 176, 175 178, 140 178 L48 178 C44 178, 43 174, 44 171 Z" fill="#0F172A" />
+    <rect x="54" y="177" width="14" height="3.5" rx="1" fill="#0F172A" />
+    <rect x="76" y="177" width="16" height="3.5" rx="1" fill="#0F172A" />
+    <rect x="100" y="177" width="16" height="3.5" rx="1" fill="#0F172A" />
+    <rect x="124" y="177" width="16" height="3.5" rx="1" fill="#0F172A" />
+    <rect x="148" y="177" width="16" height="3.5" rx="1" fill="#0F172A" />
+    <rect x="172" y="177" width="14" height="3.5" rx="1" fill="#0F172A" />
+
+    <!-- Heel Counter Accent Line -->
+    <path d="M51 112 C56 123, 60 135, 60 147" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <path d="M60 133 C74 135, 88 132, 98 124 L95 117" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Laces -->
+    <line x1="122" y1="106" x2="114" y2="111" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" />
+    <line x1="133" y1="112" x2="125" y2="117" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" />
+    <line x1="144" y1="118" x2="136" y2="123" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" />
+    <line x1="155" y1="124" x2="147" y2="129" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" />
+
+    <!-- Midfoot & Toe Cap Highlights -->
+    <path d="M122 146 C127 140, 134 136, 141 135" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <path d="M158 147 C163 141, 172 139, 184 141 L201 144" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+  </g>
+</svg>
