@@ -81,6 +81,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
           <div className="flex items-center gap-2">
             <button
               type="button"
+              
               aria-pressed={showTotals}
               onClick={toggleTotals}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${showTotals ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
@@ -271,9 +272,9 @@ const WEEK_TOTALS_KEY = 'asphaltburner.weekTotals'
 
 function loadWeekTotals(): boolean {
   try {
-    return localStorage.getItem(WEEK_TOTALS_KEY) !== '0'
+    return localStorage.getItem(WEEK_TOTALS_KEY) === '1'
   } catch {
-    return true
+    return false
   }
 }
 
