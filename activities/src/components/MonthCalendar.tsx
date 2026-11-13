@@ -19,6 +19,14 @@ type MonthCalendarProps = {
 }
 
 export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actions, onPrev, onNext, onToday, onSelectDay }: MonthCalendarProps) {
+  const [showTotals, setShowTotals] = useState(loadWeekTotals)
+  const toggleTotals = () => {
+    setShowTotals((current) => {
+      const next = !current
+      saveWeekTotals(next)
+      return next
+    })
+  }
   return (
     <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-7">
       <div className="flex flex-wrap items-end justify-between gap-5">
@@ -50,7 +58,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
         ))}
       </div>
 
-      <div className="cal-pad flex flex-col gap-[18px] rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px]">
+      <div className={`cal-board cal-pad flex flex-col gap-[18px] rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px] ${showTotals ? '' : 'is-totals-hidden'}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2">
           {model.legend.map((item) => (
@@ -81,7 +89,10 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
               </span>
             ))}
           </div>
-          <span className="cal-weeklabel pl-1 text-xs font-medium uppercase tracking-[0.06em] text-[#9AA3B5]">Week totals</span>
+          <button type="button" className="cal-weektoggle" aria-expanded={showTotals} onClick={toggleTotals}>
+            <span>Week totals</span>
+            <Chevron direction={showTotals ? 'up' : 'down'} />
+          </button>
         </div>
 
         <div className="flex flex-col gap-2.5">
@@ -92,7 +103,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
                   <DayCellView key={day.key} day={day} selected={day.key === selectedKey} onSelect={() => onSelectDay(day)} />
                 ))}
               </div>
-              <div className="flex flex-col justify-center gap-3 rounded-[14px] border bg-[#12161E] px-4 py-3.5" style={{ borderColor: week.border }}>
+              {showTotals ? <div className="flex flex-col justify-center gap-3 rounded-[14px] border bg-[#12161E] px-4 py-3.5" style={{ borderColor: week.border }}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-semibold">{week.label}</span>
@@ -111,7 +122,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
                     </div>
                   ))}
                 </div>
-              </div>
+              </div> : null}
             </div>
           ))}
         </div>
@@ -249,10 +260,36 @@ function Check() {
   )
 }
 
-function Chevron({ direction }: { direction: 'left' | 'right' }) {
-  const d = direction === 'left' ? 'M12.5 4.5 7 10l5.5 5.5' : 'M7.5 4.5 13 10l-5.5 5.5'
+const WEEK_TOTALS_KEY = 'enduraw.weekTotals'
+
+function loadWeekTotals(): boolean {
+  try {
+    return localStorage.getItem(WEEK_TOTALS_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+function saveWeekTotals(open: boolean) {
+  try {
+    localStorage.setItem(WEEK_TOTALS_KEY, open ? '1' : '0')
+  } catch {
+    /* the choice still applies for this visit */
+  }
+}
+
+function Chevron({ direction }: { direction: 'left' | 'right' | 'up' | 'down' }) {
+  const d =
+    direction === 'left'
+      ? 'M12.5 4.5 7 10l5.5 5.5'
+      : direction === 'up'
+        ? 'M4.5 12.5 10 7l5.5 5.5'
+        : direction === 'down'
+          ? 'M4.5 7.5 10 13l5.5-5.5'
+          : 'M7.5 4.5 13 10l-5.5 5.5'
+  const size = direction === 'up' || direction === 'down' ? 16 : 20
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={d} />
     </svg>
   )

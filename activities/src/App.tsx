@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { ActivitiesPage } from './pages/ActivitiesPage'
 import { CalendarPage } from './pages/CalendarPage'
+import { LoadPage } from './pages/LoadPage'
 import { DEFAULT_MAX_HR, loadMaxHr, saveMaxHr } from './lib/intensity'
 
-function currentPath(): '/' | '/activities' {
+type PagePath = '/' | '/load' | '/activities'
+
+function currentPath(): PagePath {
   const path = window.location.pathname.replace(/\/+$/, '') || '/'
-  return path === '/activities' ? '/activities' : '/'
+  if (path === '/load') return '/load'
+  if (path === '/activities') return '/activities'
+  return '/'
 }
 
 export function App() {
@@ -17,13 +22,12 @@ export function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  const go = (href: '/' | '/activities') => {
+  const go = (href: PagePath) => {
     if (href === path) return
     window.history.pushState({}, '', href)
     setPath(href)
   }
 
-  const home = path === '/'
   const [maxHr, setMaxHr] = useState(loadMaxHr)
 
   const updateMaxHr = (value: number) => setMaxHr(saveMaxHr(value))
@@ -37,25 +41,34 @@ export function App() {
             ENDURAW
           </div>
           <nav aria-label="Main" className="flex items-center">
-            <NavItem href="/" active={home} onNavigate={go}>
+            <NavItem href="/" active={path === '/'} onNavigate={go}>
               Calendar
             </NavItem>
-            <NavItem href="/activities" active={!home} onNavigate={go}>
+            <NavItem href="/load" active={path === '/load'} onNavigate={go}>
+              Load
+            </NavItem>
+            <NavItem href="/activities" active={path === '/activities'} onNavigate={go}>
               Activities
             </NavItem>
           </nav>
           <HrSettings maxHr={maxHr} onChange={updateMaxHr} />
         </div>
       </header>
-      {home ? (
+      {path === '/' ? (
         <main>
           <CalendarPage maxHr={maxHr} />
         </main>
-      ) : (
+      ) : null}
+      {path === '/load' ? (
+        <main>
+          <LoadPage maxHr={maxHr} />
+        </main>
+      ) : null}
+      {path === '/activities' ? (
         <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">
           <ActivitiesPage maxHr={maxHr} />
         </main>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -171,9 +184,9 @@ function NavItem({
   onNavigate,
   children,
 }: {
-  href: '/' | '/activities'
+  href: PagePath
   active: boolean
-  onNavigate: (href: '/' | '/activities') => void
+  onNavigate: (href: PagePath) => void
   children: string
 }) {
   return (

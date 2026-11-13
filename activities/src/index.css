@@ -52,11 +52,48 @@ a {
   font-family: "Space Grotesk", ui-sans-serif, sans-serif;
 }
 
-.cal-week,
 .cal-weekhead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cal-weekhead .cal-days {
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-weektoggle {
+  display: flex;
+  width: 300px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9aa3b5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cal-board.is-totals-hidden .cal-weektoggle {
+  width: auto;
+}
+
+.cal-week {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 14px;
+}
+
+.cal-board.is-totals-hidden .cal-week {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .cal-days {
@@ -116,13 +153,14 @@ button.cal-cell:focus-visible,
 }
 
 @media (max-width: 900px) {
-  .cal-week,
-  .cal-weekhead {
-    grid-template-columns: minmax(0, 1fr);
+  .cal-weektoggle,
+  .cal-board.is-totals-hidden .cal-weektoggle {
+    width: auto;
   }
 
-  .cal-weeklabel {
-    display: none;
+  .cal-week,
+  .cal-board.is-totals-hidden .cal-week {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

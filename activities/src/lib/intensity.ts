@@ -15,10 +15,10 @@ export const INTENSITY_COLOR: Record<Intensity, string> = {
   hard: '#DC2626',
 }
 
-export const INTENSITY_CELL: Record<Intensity, { bg: string; fg: string; dimBg: string; dimFg: string; bars: [number, number, number] }> = {
-  easy: { bg: '#1F6F8B', fg: '#FFFFFF', dimBg: '#14303B', dimFg: '#C9D3DE', bars: [1, 0.3, 0.3] },
-  medium: { bg: '#FACC15', fg: '#1A1205', dimBg: '#3F3510', dimFg: '#FDE68A', bars: [1, 1, 0.3] },
-  hard: { bg: '#DC2626', fg: '#FFFFFF', dimBg: '#4A1515', dimFg: '#FECACA', bars: [1, 1, 1] },
+export const INTENSITY_CELL: Record<Intensity, { bg: string; fg: string; bars: [number, number, number] }> = {
+  easy: { bg: '#1F6F8B', fg: '#FFFFFF', bars: [1, 0.3, 0.3] },
+  medium: { bg: '#FACC15', fg: '#1A1205', bars: [1, 1, 0.3] },
+  hard: { bg: '#DC2626', fg: '#FFFFFF', bars: [1, 1, 1] },
 }
 
 const RANK: Record<Intensity, number> = { easy: 0, medium: 1, hard: 2 }
@@ -53,7 +53,8 @@ export function saveMaxHr(value: number): number {
   return next
 }
 
-function zone(hr: number, maxHr: number): number {
+/** Z1 under 60% of max, then 10-point steps through Z5 at 90% and above. */
+export function heartRateZone(hr: number, maxHr: number): number {
   const ratio = hr / maxHr
   if (ratio < 0.6) return 1
   if (ratio < 0.7) return 2
@@ -71,7 +72,7 @@ function bucket(zoneNumber: number): Intensity {
 /** Same Z1–Z5 cutoffs as a calendar day: under 70% easy, 70–80% medium, 80% and above hard. */
 export function intensityFromHeartRate(hr: number, maxHr: number | null): Intensity | null {
   if (!maxHr || hr <= 0) return null
-  return bucket(zone(hr, maxHr))
+  return bucket(heartRateZone(hr, maxHr))
 }
 
 /** Dominant zone from the stream, otherwise the average heart rate. */
@@ -80,14 +81,14 @@ export function intensityOf(activity: Activity, maxHr: number | null): Intensity
   const samples = (activity.stream ?? []).map((point) => point.hr).filter((hr): hr is number => hr !== null && hr > 0)
   if (samples.length >= 8) {
     const counts = [0, 0, 0, 0, 0]
-    for (const hr of samples) counts[zone(hr, maxHr) - 1] += 1
+    for (const hr of samples) counts[heartRateZone(hr, maxHr) - 1] += 1
     let dominant = 0
     for (let index = 1; index < counts.length; index += 1) {
       if (counts[index] > counts[dominant]) dominant = index
     }
     return bucket(dominant + 1)
   }
-  if (activity.avgHr && activity.avgHr > 0) return bucket(zone(activity.avgHr, maxHr))
+  if (activity.avgHr && activity.avgHr > 0) return bucket(heartRateZone(activity.avgHr, maxHr))
   return null
 }
 
