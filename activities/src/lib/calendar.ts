@@ -1,5 +1,5 @@
 import { SPORT_LABEL } from './format'
-import { INTENSITY_CELL, INTENSITY_LABEL, intensityOf, type Intensity } from './intensity'
+import { DEFAULT_ZONES, INTENSITY_CELL, INTENSITY_LABEL, intensityOf, type Intensity, type ZoneEdges } from './intensity'
 import { formatDayInput, startOfWeek } from './period'
 import type { Activity, Sport } from '../types'
 
@@ -132,7 +132,7 @@ function sum(activities: Activity[]) {
  * Month grid from the Monday of the first week through the Sunday of the last.
  * Week totals include neighbouring-month days. Month tiles do not.
  */
-export function buildMonthCalendar(activities: Activity[], year: number, month: number, maxHr: number, now = new Date()): MonthCalendar {
+export function buildMonthCalendar(activities: Activity[], year: number, month: number, maxHr: number, now = new Date(), zones: ZoneEdges = DEFAULT_ZONES): MonthCalendar {
   const todayKey = formatDayInput(now)
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const byDay = new Map<string, Activity[]>()
@@ -193,15 +193,15 @@ export function buildMonthCalendar(activities: Activity[], year: number, month: 
       }
 
       const lead = sessions.reduce((best, activity) => {
-        const bestLevel = intensityOf(best, maxHr)
-        const nextLevel = intensityOf(activity, maxHr)
+        const bestLevel = intensityOf(best, maxHr, zones)
+        const nextLevel = intensityOf(activity, maxHr, zones)
         const bestRank = bestLevel === 'hard' ? 2 : bestLevel === 'medium' ? 1 : bestLevel === 'easy' ? 0 : -1
         const nextRank = nextLevel === 'hard' ? 2 : nextLevel === 'medium' ? 1 : nextLevel === 'easy' ? 0 : -1
         if (nextRank !== bestRank) return nextRank > bestRank ? activity : best
         return activity.distanceM > best.distanceM ? activity : best
       })
       const sports = sportsOnDay(sessions)
-      const level = intensityOf(lead, maxHr)
+      const level = intensityOf(lead, maxHr, zones)
       const palette = level ? INTENSITY_CELL[level] : null
       const totals = sum(sessions)
       const km = (totals.meters / 1000).toFixed(1)

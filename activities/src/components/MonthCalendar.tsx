@@ -78,7 +78,17 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
             <span className="text-[#9AA3B5]">{model.restDays === 1 ? '1 day' : `${model.restDays} days`}</span>
           </div>
         </div>
-          <SportFilter sports={sports} onToggle={onToggleSport} />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={showTotals}
+              onClick={toggleTotals}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${showTotals ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
+            >
+              Week totals
+            </button>
+            <SportFilter sports={sports} onToggle={onToggleSport} />
+          </div>
         </div>
 
         <div className="cal-weekhead">
@@ -89,10 +99,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
               </span>
             ))}
           </div>
-          <button type="button" className="cal-weektoggle" aria-expanded={showTotals} onClick={toggleTotals}>
-            <span>Week totals</span>
-            <Chevron direction={showTotals ? 'up' : 'down'} />
-          </button>
+          {showTotals ? <span /> : null}
         </div>
 
         <div className="flex flex-col gap-2.5">
@@ -260,7 +267,7 @@ function Check() {
   )
 }
 
-const WEEK_TOTALS_KEY = 'enduraw.weekTotals'
+const WEEK_TOTALS_KEY = 'asphaltburner.weekTotals'
 
 function loadWeekTotals(): boolean {
   try {

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { ActivitiesProvider, useActivities } from './lib/activities'
 import { ActivitiesPage } from './pages/ActivitiesPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { LoadPage } from './pages/LoadPage'
-import { DEFAULT_MAX_HR, loadMaxHr, saveMaxHr } from './lib/intensity'
+import { DEFAULT_MAX_HR, DEFAULT_ZONES, loadMaxHr, loadZones, saveMaxHr, saveZones, type ZoneEdges } from './lib/intensity'
 
 type PagePath = '/' | '/load' | '/activities'
 
@@ -37,8 +38,38 @@ export function App() {
   }
 
   const [maxHr, setMaxHr] = useState(loadMaxHr)
+  const [zones, setZones] = useState<ZoneEdges>(loadZones)
 
   const updateMaxHr = (value: number) => setMaxHr(saveMaxHr(value))
+  const updateZones = (values: number[]) => {
+    const next = saveZones(values)
+    setZones(next)
+    return next
+  }
+
+  return (
+    <ActivitiesProvider>
+      <Shell path={path} go={go} maxHr={maxHr} onMaxHr={updateMaxHr} zones={zones} onZones={updateZones} />
+    </ActivitiesProvider>
+  )
+}
+
+function Shell({
+  path,
+  go,
+  maxHr,
+  onMaxHr,
+  zones,
+  onZones,
+}: {
+  path: PagePath
+  go: (href: PagePath) => void
+  maxHr: number
+  onMaxHr: (value: number) => void
+  zones: ZoneEdges
+  onZones: (values: number[]) => ZoneEdges
+}) {
+  const { progress, error } = useActivities()
 
   return (
     <div className="min-h-screen">
@@ -46,7 +77,7 @@ export function App() {
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
           <div className="flex items-center gap-2 font-display text-sm font-semibold tracking-[0.16em]">
             <Mark />
-            ENDURAW
+            AsphaltBurner
           </div>
           <nav aria-label="Main" className="flex items-center">
             <NavItem href="/" active={path === '/'} onNavigate={go}>
@@ -59,36 +90,78 @@ export function App() {
               Activities
             </NavItem>
           </nav>
-          <HrSettings maxHr={maxHr} onChange={updateMaxHr} />
+          <div className="ml-auto flex items-center gap-2">
+            <ImportZip />
+            <HrSettings maxHr={maxHr} onChange={onMaxHr} zones={zones} onZones={onZones} />
+          </div>
         </div>
       </header>
+      {error ? <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-red-200">{error}</p> : null}
+      {progress ? (
+        <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-white/70">
+          Reading {progress.done}/{progress.total}
+          {progress.label ? ` · ${progress.label}` : ''}
+        </p>
+      ) : null}
       {path === '/' ? (
         <main>
-          <CalendarPage maxHr={maxHr} />
+          <CalendarPage maxHr={maxHr} split={zones} />
         </main>
       ) : null}
       {path === '/load' ? (
         <main>
-          <LoadPage maxHr={maxHr} />
+          <LoadPage maxHr={maxHr} split={zones} />
         </main>
       ) : null}
       {path === '/activities' ? (
         <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">
-          <ActivitiesPage maxHr={maxHr} />
+          <ActivitiesPage maxHr={maxHr} split={zones} />
         </main>
       ) : null}
     </div>
   )
 }
 
-function HrSettings({ maxHr, onChange }: { maxHr: number; onChange: (value: number) => void }) {
+function ImportZip() {
+  const { importFile, progress } = useActivities()
+
+  return (
+    <label className="cursor-pointer rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">
+      {progress ? 'Importing…' : 'Import zip'}
+      <input
+        className="sr-only"
+        type="file"
+        accept=".zip,application/zip"
+        disabled={progress !== null}
+        onChange={(event) => {
+          importFile(event.target.files?.[0])
+          event.target.value = ''
+        }}
+      />
+    </label>
+  )
+}
+
+function HrSettings({
+  maxHr,
+  onChange,
+  zones,
+  onZones,
+}: {
+  maxHr: number
+  onChange: (value: number) => void
+  zones: ZoneEdges
+  onZones: (values: number[]) => ZoneEdges
+}) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(String(maxHr))
+  const [zoneDraft, setZoneDraft] = useState(() => zones.map(String))
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     setDraft(String(maxHr))
+    setZoneDraft(zones.map(String))
     const onPointer = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
     }
@@ -101,7 +174,7 @@ function HrSettings({ maxHr, onChange }: { maxHr: number; onChange: (value: numb
       document.removeEventListener('mousedown', onPointer)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open, maxHr])
+  }, [open, maxHr, zones])
 
   const apply = (raw: string) => {
     setDraft(raw)
@@ -120,11 +193,17 @@ function HrSettings({ maxHr, onChange }: { maxHr: number; onChange: (value: numb
     setDraft(String(Math.min(230, Math.max(100, Math.round(parsed)))))
   }
 
-  const mediumFrom = Math.ceil(maxHr * 0.7)
-  const hardFrom = Math.ceil(maxHr * 0.8)
+  const commitZones = () => {
+    const next = onZones(zoneDraft.map(Number))
+    setZoneDraft(next.map(String))
+  }
+
+  const parsed = zoneDraft.map(Number)
+  const shown = parsed.every((value) => Number.isFinite(value)) ? parsed : zones
+  const bpm = shown.map((value) => Math.ceil((maxHr * value) / 100))
 
   return (
-    <div ref={rootRef} className="relative ml-auto">
+    <div ref={rootRef} className="relative">
       <button
         type="button"
         className={`grid h-9 w-9 place-items-center rounded-lg border ${open ? 'border-white/40 bg-white/10 text-white' : 'border-white/10 text-white/70 hover:text-white'}`}
@@ -136,10 +215,9 @@ function HrSettings({ maxHr, onChange }: { maxHr: number; onChange: (value: numb
         <Gear />
       </button>
       {open ? (
-        <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-[#262C3B] bg-[#12161E] p-4 shadow-xl">
-          <p className="text-sm font-semibold">Max heart rate</p>
-          <p className="mt-1 text-xs text-white/45">Zones use this value. Default {DEFAULT_MAX_HR} bpm.</p>
-          <label className="mt-3 flex items-center gap-2 text-sm">
+        <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-white/10 bg-[#12161E] p-4 shadow-xl">
+          <p className="text-sm font-medium">Max heart rate</p>
+          <label className="mt-2 flex items-center gap-2 text-sm">
             <input
               type="number"
               min={100}
@@ -149,31 +227,62 @@ function HrSettings({ maxHr, onChange }: { maxHr: number; onChange: (value: numb
               onChange={(event) => apply(event.target.value)}
               onBlur={commit}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.currentTarget.blur()
-                }
+                if (event.key === 'Enter') event.currentTarget.blur()
               }}
-              className="w-24 rounded-lg border border-[#262C3B] bg-[#0B0D12] px-3 py-2 text-base font-semibold tabular-nums outline-none focus:border-white/40"
+              className="w-20 rounded-md border border-white/15 bg-black px-2 py-1 text-sm tabular-nums outline-none focus:border-white/40"
             />
-            <span className="text-white/55">bpm</span>
+            <span className="text-xs text-white/55">bpm · default {DEFAULT_MAX_HR}</span>
           </label>
-          <ul className="mt-3 space-y-1.5 text-xs text-white/70">
-            <li className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#1F6F8B' }} />
-              Easy under {mediumFrom} bpm
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#FACC15' }} />
-              Medium {mediumFrom}–{hardFrom - 1} bpm
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#DC2626' }} />
-              Hard {hardFrom} bpm and above
-            </li>
+
+          <p className="mt-4 text-sm font-medium">Five zones</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/45">
+            Each sample is a percent of max heart rate. Z1 is under the first value, each next zone runs up to the next value, and Z5 is the rest. Easy is Z1–Z2, medium is Z3, hard is Z4–Z5. Defaults are {DEFAULT_ZONES.join(', ')}.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {zoneDraft.map((value, index) => (
+              <PercentField
+                key={DEFAULT_ZONES[index]}
+                label={`Z${index + 1} under`}
+                value={value}
+                onChange={(next) => setZoneDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? next : item)))}
+                onCommit={commitZones}
+              />
+            ))}
+          </div>
+          <ul className="mt-3 space-y-1 text-xs text-white/70">
+            <li>Z1 under {bpm[0]} bpm · easy</li>
+            <li>Z2 {bpm[0]}–{Math.max(bpm[0], bpm[1] - 1)} bpm · easy</li>
+            <li>Z3 {bpm[1]}–{Math.max(bpm[1], bpm[2] - 1)} bpm · medium</li>
+            <li>Z4 {bpm[2]}–{Math.max(bpm[2], bpm[3] - 1)} bpm · hard</li>
+            <li>Z5 {bpm[3]} bpm and above · hard</li>
           </ul>
         </div>
       ) : null}
     </div>
+  )
+}
+
+function PercentField({ label, value, onChange, onCommit }: { label: string; value: string; onChange: (value: string) => void; onCommit: () => void }) {
+  return (
+    <label className="text-xs text-white/55">
+      {label}
+      <span className="mt-1 flex items-center gap-1">
+        <input
+          type="number"
+          min={40}
+          max={99}
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={onCommit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+          className="w-full rounded-md border border-white/15 bg-black px-2 py-1 text-sm tabular-nums text-white outline-none focus:border-white/40"
+        />
+        <span>%</span>
+      </span>
+    </label>
   )
 }
 
@@ -216,9 +325,14 @@ function NavItem({
 
 function Mark() {
   return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-      <path d="M4 14c2-6 4-9 7-9s5 3 7 9" fill="none" stroke="white" strokeWidth="1.6" />
-      <path d="M7 14c1.2-3 2.2-4.5 4-4.5S13.8 11 15 14" fill="none" stroke="white" strokeWidth="1.6" />
-    </svg>
+    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white">
+      <img
+        src={`${import.meta.env.BASE_URL}icons/icon_asphaltbuner.svg`}
+        alt=""
+        width={28}
+        height={28}
+        className="h-7 w-7"
+      />
+    </span>
   )
 }
