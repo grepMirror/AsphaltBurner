@@ -24,9 +24,15 @@ export const INTENSITY_CELL: Record<Intensity, { bg: string; fg: string; bars: [
 const RANK: Record<Intensity, number> = { easy: 0, medium: 1, hard: 2 }
 
 export const DEFAULT_MAX_HR = 200
-const MAX_HR_KEY = 'enduraw.hrMax'
+const MAX_HR_KEY = 'asphaltburner.hrMax'
+const ZONE_KEY = 'asphaltburner.zoneEdges'
 const MAX_HR_MIN = 100
 const MAX_HR_MAX = 230
+
+/** Upper bounds, in percent of max heart rate, for Z1, Z2, Z3 and Z4. Z5 is everything above the last. */
+export type ZoneEdges = readonly [number, number, number, number]
+
+export const DEFAULT_ZONES: ZoneEdges = [60, 70, 80, 90]
 
 export function clampMaxHr(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_HR
@@ -53,42 +59,71 @@ export function saveMaxHr(value: number): number {
   return next
 }
 
-/** Z1 under 60% of max, then 10-point steps through Z5 at 90% and above. */
-export function heartRateZone(hr: number, maxHr: number): number {
-  const ratio = hr / maxHr
-  if (ratio < 0.6) return 1
-  if (ratio < 0.7) return 2
-  if (ratio < 0.8) return 3
-  if (ratio < 0.9) return 4
+export function clampZones(values: readonly number[]): ZoneEdges {
+  const next: number[] = []
+  let previous = 39
+  for (let index = 0; index < 4; index += 1) {
+    const raw = Number.isFinite(values[index]) ? Math.round(values[index]) : DEFAULT_ZONES[index]
+    const value = Math.min(99 - (3 - index), Math.max(previous + 1, raw))
+    next.push(value)
+    previous = value
+  }
+  return next as unknown as ZoneEdges
+}
+
+export function loadZones(): ZoneEdges {
+  try {
+    const raw = localStorage.getItem(ZONE_KEY)
+    if (!raw) return DEFAULT_ZONES
+    return clampZones(raw.split(',').map(Number))
+  } catch {
+    return DEFAULT_ZONES
+  }
+}
+
+export function saveZones(values: readonly number[]): ZoneEdges {
+  const next = clampZones(values)
+  try {
+    localStorage.setItem(ZONE_KEY, next.join(','))
+  } catch {
+    /* the value still applies for this visit */
+  }
+  return next
+}
+
+/** Zone from the configured percent-of-max boundaries. */
+export function heartRateZone(hr: number, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES): number {
+  const ratio = (hr / maxHr) * 100
+  for (let index = 0; index < zones.length; index += 1) {
+    if (ratio < zones[index]) return index + 1
+  }
   return 5
 }
 
-function bucket(zoneNumber: number): Intensity {
-  if (zoneNumber <= 2) return 'easy'
-  if (zoneNumber === 3) return 'medium'
+function intensityOfZone(zone: number): Intensity {
+  if (zone <= 2) return 'easy'
+  if (zone === 3) return 'medium'
   return 'hard'
 }
 
-/** Same Z1–Z5 cutoffs as a calendar day: under 70% easy, 70–80% medium, 80% and above hard. */
-export function intensityFromHeartRate(hr: number, maxHr: number | null): Intensity | null {
+export function intensityFromHeartRate(hr: number, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES): Intensity | null {
   if (!maxHr || hr <= 0) return null
-  return bucket(heartRateZone(hr, maxHr))
+  return intensityOfZone(heartRateZone(hr, maxHr, zones))
 }
 
-/** Dominant zone from the stream, otherwise the average heart rate. */
-export function intensityOf(activity: Activity, maxHr: number | null): Intensity | null {
+/** Dominant band from the stream, otherwise the average heart rate. */
+export function intensityOf(activity: Activity, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES): Intensity | null {
   if (!maxHr) return null
   const samples = (activity.stream ?? []).map((point) => point.hr).filter((hr): hr is number => hr !== null && hr > 0)
   if (samples.length >= 8) {
-    const counts = [0, 0, 0, 0, 0]
-    for (const hr of samples) counts[heartRateZone(hr, maxHr) - 1] += 1
-    let dominant = 0
-    for (let index = 1; index < counts.length; index += 1) {
-      if (counts[index] > counts[dominant]) dominant = index
+    const counts: Record<Intensity, number> = { easy: 0, medium: 0, hard: 0 }
+    for (const hr of samples) {
+      const level = intensityFromHeartRate(hr, maxHr, zones)
+      if (level) counts[level] += 1
     }
-    return bucket(dominant + 1)
+    return (['easy', 'medium', 'hard'] as const).reduce((best, level) => (counts[level] > counts[best] ? level : best))
   }
-  if (activity.avgHr && activity.avgHr > 0) return bucket(heartRateZone(activity.avgHr, maxHr))
+  if (activity.avgHr && activity.avgHr > 0) return intensityFromHeartRate(activity.avgHr, maxHr, zones)
   return null
 }
 

@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ActivityMap } from '../components/ActivityMap'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
 import { VolumeChart } from '../components/VolumeChart'
+import { useActivities } from '../lib/activities'
+import type { ZoneEdges } from '../lib/intensity'
 import { SPORTS, SPORT_LABEL, formatDistance, formatDuration, formatPaceOrSpeed, formatWhen } from '../lib/format'
 import { formatWindow, inPeriod, weekWindow, windowBounds } from '../lib/period'
-import { buildSampleZip } from '../lib/sampleZip'
-import { clearBundle, loadBundle, saveBundle } from '../lib/store'
-import { readStravaZip, type ImportProgress } from '../lib/strava'
-import type { Activity, DateWindow, ImportReport, MetricId, RangeId, Sport } from '../types'
+import type { Activity, DateWindow, MetricId, RangeId, Sport } from '../types'
 
-export function ActivitiesPage({ maxHr }: { maxHr: number }) {
-  const [ready, setReady] = useState(false)
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [report, setReport] = useState<ImportReport | null>(null)
+export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+  const { ready, activities, report, clear } = useActivities()
   const [sports, setSports] = useState<Set<Sport>>(() => new Set(SPORTS))
   const [range, setRange] = useState<RangeId>('12m')
   const [custom, setCustom] = useState<DateWindow | null>(null)
@@ -22,56 +19,13 @@ export function ActivitiesPage({ maxHr }: { maxHr: number }) {
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [progress, setProgress] = useState<ImportProgress | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
-    let cancelled = false
-    loadBundle()
-      .then((bundle) => {
-        if (cancelled || !bundle) return
-        setActivities(bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] })))
-        setReport(bundle.report)
-      })
-      .catch(() => {
-        if (!cancelled) setError('Saved sessions could not be opened. You can import the zip again.')
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const importZip = useCallback(async (file: Blob, source: ImportReport['source']) => {
-    setError(null)
-    setProgress({ done: 0, total: 1, label: 'Opening zip' })
-    try {
-      const result = await readStravaZip(file, setProgress, source)
-      setActivities(result.activities)
-      setReport(result.report)
-      setSelectedId(null)
-      setDetailId(null)
-      setFocusWeek(null)
-      setRange('12m')
-      await saveBundle(result)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The zip could not be read.')
-    } finally {
-      setProgress(null)
-    }
-  }, [])
-
-  const onFile = (file: File | undefined) => {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.zip')) {
-      setError('Drop the Strava export .zip file.')
-      return
-    }
-    void importZip(file, 'zip')
-  }
+    setSelectedId(null)
+    setDetailId(null)
+    setFocusWeek(null)
+    setRange('12m')
+  }, [activities])
 
   const sportFiltered = useMemo(
     () => activities.filter((activity) => sports.has(activity.sport)),
@@ -116,72 +70,27 @@ export function ActivitiesPage({ maxHr }: { maxHr: number }) {
   }
 
   if (detail) {
-    return <SessionView activity={detail} maxHr={maxHr} onBack={() => setDetailId(null)} />
+    return <SessionView activity={detail} maxHr={maxHr} split={split} onBack={() => setDetailId(null)} />
   }
 
   return (
-    <div
-      className="relative"
-      onDragOver={(event) => {
-        event.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setDragging(false)
-        onFile(event.dataTransfer.files[0])
-      }}
-    >
+    <div className="relative">
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Activities</h1>
           <p className="mt-1 text-sm text-white/55">Sessions from a Strava export. A direct connector can replace the zip later.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <label className="cursor-pointer rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">
-            Import zip
-            <input
-              className="sr-only"
-              type="file"
-              accept=".zip,application/zip"
-              onChange={(event) => {
-                onFile(event.target.files?.[0])
-                event.target.value = ''
-              }}
-            />
-          </label>
-          {activities.length > 0 ? (
-            <button
-              type="button"
-              className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/70"
-              onClick={() => {
-                void clearBundle()
-                setActivities([])
-                setReport(null)
-                setSelectedId(null)
-                setDetailId(null)
-                setFocusWeek(null)
-              }}
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
+        {activities.length > 0 ? (
+          <button
+            type="button"
+            className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/70"
+            onClick={() => clear()}
+          >
+            Clear
+          </button>
+        ) : null}
       </header>
 
-      {error ? <p className="mb-4 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p> : null}
-      {progress ? (
-        <p className="mb-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/75">
-          Reading {progress.done}/{progress.total}
-          {progress.label ? ` · ${progress.label}` : ''}
-        </p>
-      ) : null}
-      {report?.source === 'sample' ? (
-        <p className="mb-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70">
-          Sample sessions around Annecy. Import a Strava zip to replace them.
-        </p>
-      ) : null}
       {report && report.source === 'zip' ? (
         <p className="mb-4 text-sm text-white/55">
           {report.sessions} sessions · {report.tracks} with a map
@@ -190,14 +99,7 @@ export function ActivitiesPage({ maxHr }: { maxHr: number }) {
         </p>
       ) : null}
 
-      {activities.length === 0 ? (
-        <EmptyImport
-          busy={progress !== null}
-          onSample={() => {
-            void buildSampleZip().then((blob) => importZip(blob, 'sample'))
-          }}
-        />
-      ) : (
+      {activities.length === 0 ? <p className="py-16 text-center text-sm text-white/55">No activity found</p> : (
         <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {SPORTS.map((sport) => {
@@ -284,7 +186,7 @@ export function ActivitiesPage({ maxHr }: { maxHr: number }) {
               )}
             </section>
             <div className="flex flex-col gap-4">
-              <ActivityMap activities={visible} maxHr={maxHr} selectedId={selected?.id ?? null} onSelect={selectActivity} />
+              <ActivityMap activities={visible} maxHr={maxHr} split={split} selectedId={selected?.id ?? null} onSelect={selectActivity} />
               {selected ? (
                 <ActivityDetail activity={selected} peers={sportFiltered} onOpen={() => setDetailId(selected.id)} />
               ) : (
@@ -297,9 +199,6 @@ export function ActivitiesPage({ maxHr }: { maxHr: number }) {
         </div>
       )}
 
-      {dragging ? (
-        <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center bg-black/60 text-lg">Drop the Strava zip</div>
-      ) : null}
     </div>
   )
 }
@@ -359,21 +258,3 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function EmptyImport({ busy, onSample }: { busy: boolean; onSample: () => void }) {
-  return (
-    <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.03] px-6 py-16 text-center">
-      <p className="font-display text-lg">Drop a Strava export</p>
-      <p className="mx-auto mt-2 max-w-md text-sm text-white/55">
-        From Strava, open Settings, then My Account, then Download or export your data. The zip is read in this browser and kept locally.
-      </p>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onSample}
-        className="mt-6 rounded-md bg-sky-400 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-60"
-      >
-        Try a sample export
-      </button>
-    </div>
-  )
-}

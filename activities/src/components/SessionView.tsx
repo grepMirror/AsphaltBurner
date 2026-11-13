@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { formatDistance, formatDuration, formatPaceOrSpeed } from '../lib/format'
-import { INTENSITY_COLOR, intensityFromHeartRate } from '../lib/intensity'
+import { DEFAULT_ZONES, INTENSITY_COLOR, intensityFromHeartRate, type ZoneEdges } from '../lib/intensity'
 import { deriveSamples, distanceSplits, formatPace, median, smooth, type DistanceSplit } from '../lib/series'
 import type { Activity } from '../types'
 import { CURSOR, GRID, SERIES, TICK } from './chartChrome'
@@ -22,11 +22,13 @@ export function SessionView({
   onBack,
   backLabel = '← Back to activities',
   maxHr = null,
+  split = DEFAULT_ZONES,
 }: {
   activity: Activity
   onBack: () => void
   backLabel?: string
   maxHr?: number | null
+  split?: ZoneEdges
 }) {
   const stream = activity.stream ?? []
   const samples = useMemo(() => deriveSamples(stream), [stream])
@@ -151,7 +153,7 @@ export function SessionView({
             </p>
           </section>
 
-          <PaceBySplit splitM={splitM} onSplit={setSplitM} splits={splits} distanceM={activity.distanceM} maxHr={maxHr} />
+          <PaceBySplit splitM={splitM} onSplit={setSplitM} splits={splits} distanceM={activity.distanceM} maxHr={maxHr} split={split} />
         </>
       )}
     </div>
@@ -316,12 +318,14 @@ function PaceBySplit({
   onSplit,
   distanceM,
   maxHr,
+  split,
 }: {
   splits: DistanceSplit[]
   splitM: number
   onSplit: (meters: number) => void
   distanceM: number
   maxHr: number | null
+  split: ZoneEdges
 }) {
   const choices = SPLITS.filter((meters) => meters === 1000 || distanceM >= meters * 2)
   return (
@@ -351,19 +355,19 @@ function PaceBySplit({
       {splits.length === 0 ? (
         <p className="mt-4 text-sm text-white/45">Not enough distance to build a split.</p>
       ) : (
-        <SplitBars splits={splits} maxHr={maxHr} />
+        <SplitBars splits={splits} maxHr={maxHr} split={split} />
       )}
     </section>
   )
 }
 
-function splitColor(hr: number | null, maxHr: number | null): string {
+function splitColor(hr: number | null, maxHr: number | null, split: ZoneEdges): string {
   if (hr === null) return '#64748b'
-  const level = intensityFromHeartRate(hr, maxHr)
+  const level = intensityFromHeartRate(hr, maxHr, split)
   return level ? INTENSITY_COLOR[level] : '#64748b'
 }
 
-function SplitBars({ splits, maxHr }: { splits: DistanceSplit[]; maxHr: number | null }) {
+function SplitBars({ splits, maxHr, split }: { splits: DistanceSplit[]; maxHr: number | null; split: ZoneEdges }) {
   const paces = splits.map((split) => split.pace)
   const min = Math.min(...paces)
   const max = Math.max(...paces)
@@ -384,8 +388,8 @@ function SplitBars({ splits, maxHr }: { splits: DistanceSplit[]; maxHr: number |
           <YAxis type="category" dataKey="label" width={36} tick={TICK} tickLine={false} axisLine={false} />
           <Tooltip content={SplitTip} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
           <Bar dataKey="pace" radius={[0, 3, 3, 0]} isAnimationActive={false} maxBarSize={18}>
-            {splits.map((split) => (
-              <Cell key={split.label} fill={splitColor(split.hr, maxHr)} fillOpacity={split.partial ? 0.45 : 1} />
+            {splits.map((item) => (
+              <Cell key={item.label} fill={splitColor(item.hr, maxHr, split)} fillOpacity={item.partial ? 0.45 : 1} />
             ))}
           </Bar>
         </BarChart>

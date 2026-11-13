@@ -6,7 +6,7 @@ export type SavedBundle = {
   report: ImportReport | null
 }
 
-const DB_NAME = 'enduraw-activities'
+const DB_NAME = 'asphaltburner'
 const STORE = 'bundle'
 const KEY = 'v2'
 

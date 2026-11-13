@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
@@ -14,8 +14,9 @@ import {
   type LoadRange,
   type ZoneStyle,
 } from '../lib/load'
-import { loadBundle } from '../lib/store'
-import type { Activity, DateWindow } from '../types'
+import { useActivities } from '../lib/activities'
+import type { ZoneEdges } from '../lib/intensity'
+import type { DateWindow } from '../types'
 
 const RANGES: { id: LoadRange; label: string }[] = [
   { id: '4w', label: '4W' },
@@ -30,10 +31,8 @@ const METRICS: { id: LoadMetric; label: string; unit: string }[] = [
   { id: 'elevation', label: 'Elevation', unit: 'm' },
 ]
 
-export function LoadPage({ maxHr }: { maxHr: number }) {
-  const [ready, setReady] = useState(false)
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [error, setError] = useState<string | null>(null)
+export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+  const { ready, activities } = useActivities()
   const [range, setRange] = useState<LoadRange>('8w')
   const [custom, setCustom] = useState<DateWindow | null>(null)
   const [draftStart, setDraftStart] = useState('')
@@ -43,27 +42,9 @@ export function LoadPage({ maxHr }: { maxHr: number }) {
   const [metric, setMetric] = useState<LoadMetric>('volume')
   const [showLoad, setShowLoad] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    loadBundle()
-      .then((bundle) => {
-        if (cancelled || !bundle) return
-        setActivities(bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] })))
-      })
-      .catch(() => {
-        if (!cancelled) setError('Saved sessions could not be opened.')
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const windowLabel = loadWindowLabel(range, custom)
-  const weeks = useMemo(() => buildLoadWeeks(activities, range, custom, metric, style, maxHr), [activities, range, custom, metric, style, maxHr])
-  const shares = useMemo(() => periodZoneShares(activities, range, custom, polarStyle, maxHr), [activities, range, custom, polarStyle, maxHr])
+  const weeks = useMemo(() => buildLoadWeeks(activities, range, custom, metric, style, maxHr, split), [activities, range, custom, metric, style, maxHr, split])
+  const shares = useMemo(() => periodZoneShares(activities, range, custom, polarStyle, maxHr, split), [activities, range, custom, polarStyle, maxHr, split])
   const rows = weeks.map((week) => ({ label: week.label, total: week.total, change: week.change, ...week.values }))
   const unit = METRICS.find((item) => item.id === metric)?.unit ?? ''
   const hasBars = weeks.some((week) => week.total > 0)
@@ -79,50 +60,40 @@ export function LoadPage({ maxHr }: { maxHr: number }) {
   }
 
   return (
-    <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-10 pb-14 pt-10">
-      <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-7">
-        <div className="flex flex-wrap items-end justify-between gap-5">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-16 pt-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="font-display text-[40px] font-semibold leading-none tracking-tight">Training load</h1>
-            <p className="mt-2 text-sm text-[#9AA3B5]">{windowLabel}</p>
+            <h1 className="font-display text-2xl font-semibold tracking-tight">Training load</h1>
+            <p className="mt-1 text-sm text-white/55">{windowLabel}</p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex rounded-xl border border-[#262C3B] bg-[#12161E] p-1" role="group" aria-label="Date range">
-              {RANGES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => chooseRange(item.id)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${range === item.id ? 'bg-[#1C2231] text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}
+          {ready ? (
+            <div className="flex flex-col items-end gap-2">
+              <Segment label="Date range" value={range} options={RANGES} onChange={chooseRange} />
+              {range === 'custom' ? (
+                <form
+                  className="flex flex-wrap items-center justify-end gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const next = parseCustomDraft(draftStart, draftEnd)
+                    if (next) setCustom(next)
+                  }}
                 >
-                  {item.label}
-                </button>
-              ))}
+                  <input type="date" required value={draftStart} onChange={(event) => setDraftStart(event.target.value)} className="rounded-md border border-white/15 bg-black px-2 py-1 text-xs text-white [color-scheme:dark]" />
+                  <input type="date" required value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} className="rounded-md border border-white/15 bg-black px-2 py-1 text-xs text-white [color-scheme:dark]" />
+                  <button type="submit" className="rounded-md bg-sky-400 px-2.5 py-1 text-xs font-medium text-slate-950">
+                    Apply
+                  </button>
+                </form>
+              ) : null}
             </div>
-            {range === 'custom' ? (
-              <form
-                className="flex flex-wrap items-center gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const next = parseCustomDraft(draftStart, draftEnd)
-                  if (next) setCustom(next)
-                }}
-              >
-                <input type="date" required value={draftStart} onChange={(event) => setDraftStart(event.target.value)} className="rounded-lg border border-[#262C3B] bg-[#0B0D12] px-2 py-1.5 text-sm text-[#E8EAF0] [color-scheme:dark]" />
-                <input type="date" required value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} className="rounded-lg border border-[#262C3B] bg-[#0B0D12] px-2 py-1.5 text-sm text-[#E8EAF0] [color-scheme:dark]" />
-                <button type="submit" className="rounded-lg bg-[#E8EAF0] px-3 py-1.5 text-sm font-semibold text-[#0B0D12]">
-                  Apply
-                </button>
-              </form>
-            ) : null}
-          </div>
+          ) : null}
         </div>
 
-        {!ready ? <p className="text-sm text-[#9AA3B5]">Loading saved sessions…</p> : null}
-        {error ? <p className="text-sm text-[#FECACA]">{error}</p> : null}
+        {!ready ? <p className="text-sm text-white/55">Loading saved sessions…</p> : null}
+        {ready && activities.length === 0 ? <p className="py-16 text-center text-sm text-white/55">No activity found</p> : null}
 
-        <section className="rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px]">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        {ready && activities.length > 0 ? <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex flex-wrap items-center gap-2">
             <Segment
               label="Zone style"
               value={style}
@@ -142,10 +113,10 @@ export function LoadPage({ maxHr }: { maxHr: number }) {
               type="button"
               aria-pressed={showLoad}
               onClick={() => setShowLoad((current) => !current)}
-              className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${showLoad ? 'border-[#E8EAF0] bg-[#1C2231] text-[#E8EAF0]' : 'border-[#262C3B] bg-[#12161E] text-[#9AA3B5]'}`}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
             >
               <LoadMark />
-              Training load
+              Week change
             </button>
           </div>
 
@@ -196,14 +167,14 @@ export function LoadPage({ maxHr }: { maxHr: number }) {
               </div>
             </>
           ) : null}
-        </section>
+        </section> : null}
 
-        <div className="grid items-stretch gap-4 lg:grid-cols-2">
-          <section className="rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px]">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+        {ready && activities.length > 0 ? (
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="font-display text-lg font-semibold">Period polarization</h2>
-                <p className="mt-1 text-xs text-[#9AA3B5]">Time in each zone for {windowLabel}</p>
+                <h2 className="text-sm font-medium">Period polarization</h2>
+                <p className="mt-0.5 text-xs text-white/45">Time in each zone for {windowLabel}</p>
               </div>
               <Segment
                 label="Polarization zones"
@@ -217,9 +188,7 @@ export function LoadPage({ maxHr }: { maxHr: number }) {
             </div>
             <PolarBar shares={shares} />
           </section>
-          <section aria-label="Reserved" className="rounded-[22px] border border-[#1E2330] bg-[#10131A]" />
-        </div>
-      </div>
+        ) : null}
     </div>
   )
 }
@@ -236,14 +205,14 @@ function Segment<T extends string>({
   onChange: (value: T) => void
 }) {
   return (
-    <div className="flex rounded-xl border border-[#262C3B] bg-[#12161E] p-1" role="group" aria-label={label}>
+    <div className="flex rounded-md bg-white/5 p-0.5" role="group" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.id}
           type="button"
           aria-pressed={value === option.id}
           onClick={() => onChange(option.id)}
-          className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${value === option.id ? 'bg-[#1C2231] text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}
+          className={`rounded px-2.5 py-1 text-xs ${value === option.id ? 'bg-white/15 text-white' : 'text-white/55'}`}
         >
           {option.label}
         </button>
@@ -256,19 +225,19 @@ function PolarBar({ shares }: { shares: { key: string; label: string; color: str
   const total = shares.reduce((sum, share) => sum + share.seconds, 0)
   if (total <= 0) return <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period.</p>
   return (
-    <div className="mt-6">
-      <div className="flex h-8 overflow-hidden rounded-lg">
+    <div className="mt-3">
+      <div className="flex h-1.5 overflow-hidden rounded-full">
         {shares.map((share) =>
           share.seconds <= 0 ? null : (
             <div key={share.key} style={{ width: `${(share.seconds / total) * 100}%`, background: share.color }} title={`${share.label} ${formatDuration(share.seconds)}`} />
           ),
         )}
       </div>
-      <ul className="mt-4 space-y-2">
+      <ul className="mt-3 space-y-1">
         {shares.map((share) => {
           const percent = Math.round((share.seconds / total) * 100)
           return (
-            <li key={share.key} className="flex items-center gap-3 text-sm">
+            <li key={share.key} className="flex items-center gap-2 text-xs text-white/70">
               <span className="h-2.5 w-2.5 rounded-sm" style={{ background: share.color }} />
               <span className="w-16 font-semibold">{share.label}</span>
               <span className="tabular-nums text-[#E8EAF0]">{formatDuration(share.seconds)}</span>
@@ -307,12 +276,16 @@ function LoadTip({
       <p className="text-white/45">{row.label}</p>
       <p className="mt-1 font-medium text-white">{formatValue(metric, row.total)}</p>
       <ul className="mt-1 space-y-0.5">
-        {ZONE_BANDS[style].map((band) => (
-          <li key={band.key} className="flex items-center gap-2 text-white/70">
-            <span className="h-2 w-2 rounded-sm" style={{ background: band.color }} />
-            {band.label} {formatValue(metric, Number(row[band.key]) || 0)}
-          </li>
-        ))}
+        {ZONE_BANDS[style].map((band) => {
+          const amount = Number(row[band.key]) || 0
+          const share = row.total > 0 ? Math.round((amount / row.total) * 100) : 0
+          return (
+            <li key={band.key} className="flex items-center gap-2 text-white/70">
+              <span className="h-2 w-2 rounded-sm" style={{ background: band.color }} />
+              {band.label} {share}%
+            </li>
+          )
+        })}
       </ul>
       {showLoad && row.change !== null ? <p className="mt-1 text-white/70">{row.change > 0 ? '+' : ''}{Math.round(row.change)}% vs previous week</p> : null}
     </div>

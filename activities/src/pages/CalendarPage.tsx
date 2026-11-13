@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { MonthCalendar } from '../components/MonthCalendar'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
+import { useActivities } from '../lib/activities'
+import type { ZoneEdges } from '../lib/intensity'
 import { buildMonthCalendar, monthOfLatest, type DayCell } from '../lib/calendar'
 import { SPORT_LABEL, formatDistance, formatDuration, formatPaceOrSpeed } from '../lib/format'
-import { loadBundle } from '../lib/store'
-import type { Activity, Sport } from '../types'
+import type { Sport } from '../types'
 
-export function CalendarPage({ maxHr }: { maxHr: number }) {
-  const [ready, setReady] = useState(false)
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [error, setError] = useState<string | null>(null)
+export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+  const { ready, activities } = useActivities()
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -20,29 +19,15 @@ export function CalendarPage({ maxHr }: { maxHr: number }) {
   const [sports, setSports] = useState<Set<Sport>>(() => new Set(['run']))
 
   useEffect(() => {
-    let cancelled = false
-    loadBundle()
-      .then((bundle) => {
-        if (cancelled || !bundle) return
-        const next = bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] }))
-        setActivities(next)
-        const runs = next.filter((activity) => activity.sport === 'run')
-        const latest = monthOfLatest(runs.length > 0 ? runs : next)
-        if (latest) setCursor(latest)
-      })
-      .catch(() => {
-        if (!cancelled) setError('Saved sessions could not be opened.')
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    const runs = activities.filter((activity) => activity.sport === 'run')
+    const latest = monthOfLatest(runs.length > 0 ? runs : activities)
+    if (latest) setCursor(latest)
+    setSelectedKey(null)
+    setDetailId(null)
+  }, [activities])
 
   const visible = useMemo(() => activities.filter((activity) => sports.has(activity.sport)), [activities, sports])
-  const model = useMemo(() => buildMonthCalendar(visible, cursor.year, cursor.month, maxHr), [visible, cursor.year, cursor.month, maxHr])
+  const model = useMemo(() => buildMonthCalendar(visible, cursor.year, cursor.month, maxHr, new Date(), split), [visible, cursor.year, cursor.month, maxHr, split])
   const selectedDay = model.weeks.flatMap((week) => week.days).find((day) => day.key === selectedKey) ?? null
   const detail = activities.find((activity) => activity.id === detailId) ?? null
 
@@ -76,7 +61,7 @@ export function CalendarPage({ maxHr }: { maxHr: number }) {
     return (
       <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-6 py-8">
         <div className="mx-auto max-w-[1280px]">
-          <SessionView activity={detail} maxHr={maxHr} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
+          <SessionView activity={detail} maxHr={maxHr} split={split} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
         </div>
       </div>
     )
@@ -99,10 +84,7 @@ export function CalendarPage({ maxHr }: { maxHr: number }) {
         onSelectDay={(day) => setSelectedKey((current) => (current === day.key ? null : day.key))}
       />
       <div className="mx-auto mt-4 flex w-full max-w-[1280px] flex-col gap-4">
-        {error ? <p className="rounded-xl border border-[#5c2b2e] bg-[#2a1215] px-3 py-2 text-sm text-[#ff8a80]">{error}</p> : null}
-        {activities.length === 0 ? (
-          <p className="text-sm text-[#9AA3B5]">No sessions yet. Import a Strava zip from Activities.</p>
-        ) : null}
+        {ready && activities.length === 0 ? <p className="text-sm text-[#9AA3B5]">No activity found</p> : null}
         {selectedDay && selectedDay.sessions.length > 0 ? <DaySessions day={selectedDay} onOpen={setDetailId} /> : null}
         <p className="text-xs text-[#8A93A6]">Weeks run Monday to Sunday. Week totals include days from neighbouring months. Month totals do not.</p>
       </div>
