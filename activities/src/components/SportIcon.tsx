@@ -1,10 +1,12 @@
 import type { Sport } from '../types'
 
+const iconBase = import.meta.env.BASE_URL
+
 const ICON: Record<Sport, string> = {
-  run: '/icons/run.png',
-  swim: '/icons/swim.png',
-  ride: '/icons/ride.png',
-  other: '/icons/other.png',
+  run: `${iconBase}icons/run.png`,
+  swim: `${iconBase}icons/swim.png`,
+  ride: `${iconBase}icons/ride.png`,
+  other: `${iconBase}icons/other.png`,
 }
 
 export function SportIcon({ sport, className = 'h-3.5 w-3.5' }: { sport: Sport; className?: string }) {
