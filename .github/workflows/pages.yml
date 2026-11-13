@@ -22,18 +22,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: activities/package-lock.json
+          cache-dependency-path: ./package-lock.json
       - run: npm ci
-        working-directory: activities
+        working-directory: ./
       - run: npm run build
-        working-directory: activities
+        working-directory: ./
         env:
           GITHUB_PAGES: 'true'
       - run: cp index.html 404.html
-        working-directory: activities/dist
+        working-directory: ./dist
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: activities/dist
+          path: ./dist
 
   deploy:
     needs: build
