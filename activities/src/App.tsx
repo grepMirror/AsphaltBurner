@@ -6,8 +6,16 @@ import { DEFAULT_MAX_HR, loadMaxHr, saveMaxHr } from './lib/intensity'
 
 type PagePath = '/' | '/load' | '/activities'
 
+const siteBase = import.meta.env.BASE_URL.replace(/\/$/, '')
+
+function pageUrl(href: PagePath): string {
+  return `${siteBase}${href}`
+}
+
 function currentPath(): PagePath {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/'
+  let path = window.location.pathname
+  if (siteBase && path.startsWith(siteBase)) path = path.slice(siteBase.length)
+  path = path.replace(/\/+$/, '') || '/'
   if (path === '/load') return '/load'
   if (path === '/activities') return '/activities'
   return '/'
@@ -24,7 +32,7 @@ export function App() {
 
   const go = (href: PagePath) => {
     if (href === path) return
-    window.history.pushState({}, '', href)
+    window.history.pushState({}, '', pageUrl(href))
     setPath(href)
   }
 
@@ -191,7 +199,7 @@ function NavItem({
 }) {
   return (
     <a
-      href={href}
+      href={pageUrl(href)}
       aria-current={active ? 'page' : undefined}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
