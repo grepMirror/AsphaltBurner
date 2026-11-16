@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
+import { Segment } from '../components/Segment'
 import { formatDuration } from '../lib/format'
 import {
   buildLoadWeeks,
@@ -19,16 +20,16 @@ import type { ZoneEdges } from '../lib/intensity'
 import type { DateWindow } from '../types'
 
 const RANGES: { id: LoadRange; label: string }[] = [
-  { id: '4w', label: '4W' },
-  { id: '8w', label: '8W' },
-  { id: '12w', label: '12W' },
+  { id: '4w', label: '4 wk' },
+  { id: '8w', label: '8 wk' },
+  { id: '12w', label: '12 wk' },
   { id: 'custom', label: 'Custom' },
 ]
 
 const METRICS: { id: LoadMetric; label: string; unit: string }[] = [
-  { id: 'volume', label: 'Volume', unit: 'km' },
-  { id: 'hour', label: 'Hour', unit: 'h' },
-  { id: 'elevation', label: 'Elevation', unit: 'm' },
+  { id: 'volume', label: 'Km', unit: 'km' },
+  { id: 'hour', label: 'Hours', unit: 'h' },
+  { id: 'elevation', label: 'd+', unit: 'm' },
 ]
 
 export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
@@ -113,7 +114,7 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
               type="button"
               aria-pressed={showLoad}
               onClick={() => setShowLoad((current) => !current)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs sm:py-1 ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
             >
               <LoadMark />
               Week change
@@ -123,7 +124,7 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
           {ready && !hasBars ? <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period, so the zones cannot be split.</p> : null}
           {hasBars ? (
             <>
-              <div className="mt-4 h-[360px]">
+              <div className="mt-4 h-[260px] sm:h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={rows} margin={{ top: 12, right: showLoad ? 12 : 8, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke={GRID} />
@@ -189,34 +190,6 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
             <PolarBar shares={shares} />
           </section>
         ) : null}
-    </div>
-  )
-}
-
-function Segment<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: T
-  options: { id: T; label: string }[]
-  onChange: (value: T) => void
-}) {
-  return (
-    <div className="flex rounded-md bg-white/5 p-0.5" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={value === option.id}
-          onClick={() => onChange(option.id)}
-          className={`rounded px-2.5 py-1 text-xs ${value === option.id ? 'bg-white/15 text-white' : 'text-white/55'}`}
-        >
-          {option.label}
-        </button>
-      ))}
     </div>
   )
 }

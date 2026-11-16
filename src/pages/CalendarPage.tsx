@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MonthCalendar } from '../components/MonthCalendar'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -59,7 +59,7 @@ export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges
 
   if (detail) {
     return (
-      <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-6 py-8">
+      <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 py-5 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-[1280px]">
           <SessionView activity={detail} maxHr={maxHr} split={split} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
         </div>
@@ -68,7 +68,7 @@ export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges
   }
 
   return (
-    <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-10 pb-14 pt-10">
+    <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-3.5 pb-10 pt-5 sm:px-10 sm:pb-14 sm:pt-10">
       <MonthCalendar
         model={model}
         sports={sports}
@@ -95,8 +95,12 @@ export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges
 function DaySessions({ day, onOpen }: { day: DayCell; onOpen: (id: string) => void }) {
   const when = new Date(`${day.key}T12:00:00`)
   const title = when.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const rootRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [day.key])
   return (
-    <section className="rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px]">
+    <section ref={rootRef} className="scroll-mb-20 rounded-[22px] border border-[#1E2330] bg-[#10131A] p-4 sm:p-[22px]">
       <h2 className="font-display text-xl font-semibold">{title}</h2>
       <ul className="mt-4 divide-y divide-[#1E2330]">
         {day.sessions.map((activity) => {
