@@ -21,6 +21,7 @@ export function ActivityMap({
   const layerRef = useRef<L.LayerGroup | null>(null)
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
+  const fitRef = useRef(() => {})
 
   useEffect(() => {
     const host = hostRef.current
@@ -39,8 +40,16 @@ export function ActivityMap({
     layerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
     const timer = window.setTimeout(() => map.invalidateSize(), 150)
+    let wasHidden = host.clientWidth === 0
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize()
+      if (wasHidden && host.clientWidth > 0) fitRef.current()
+      wasHidden = host.clientWidth === 0
+    })
+    observer.observe(host)
     return () => {
       window.clearTimeout(timer)
+      observer.disconnect()
       map.remove()
       mapRef.current = null
       layerRef.current = null
@@ -77,6 +86,7 @@ export function ActivityMap({
         map.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 })
       }
     }
+    fitRef.current = fit
     map.invalidateSize()
     fit()
     window.requestAnimationFrame(fit)
@@ -85,7 +95,7 @@ export function ActivityMap({
   const mapped = activities.filter((activity) => activity.track.length >= 2).length
 
   return (
-    <div className="relative h-full min-h-[520px] overflow-hidden rounded-xl border border-white/10">
+    <div className="relative h-full min-h-[320px] lg:min-h-[520px] overflow-hidden rounded-xl border border-white/10">
       <div ref={hostRef} className="absolute inset-0" />
       <p className="pointer-events-none absolute right-3 top-3 z-[400] rounded-md bg-black/70 px-2 py-1 text-xs text-white/80">
         {mapped === 1 ? '1 route on the map' : `${mapped} routes on the map`}

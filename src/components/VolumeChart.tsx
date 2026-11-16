@@ -5,6 +5,7 @@ import { SportIcon } from './SportIcon'
 import { formatDistance, formatHours, SPORT_COLOR, SPORT_LABEL } from '../lib/format'
 import { activeWeeks, buildBuckets, formatWindow, grainFor, periodBounds, windowBounds } from '../lib/period'
 import { GRID, TICK } from './chartChrome'
+import { Segment } from './Segment'
 
 const RANGES: { id: Exclude<RangeId, 'custom'>; label: string }[] = [
   { id: '4w', label: '4 wk' },
@@ -14,10 +15,10 @@ const RANGES: { id: Exclude<RangeId, 'custom'>; label: string }[] = [
 ]
 
 const METRICS: { id: MetricId; label: string }[] = [
-  { id: 'km', label: 'km' },
-  { id: 'h', label: 'h' },
-  { id: 'sessions', label: 'sessions' },
-  { id: 'elev', label: 'elev' },
+  { id: 'km', label: 'Km' },
+  { id: 'h', label: 'Hours' },
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'elev', label: 'd+' },
 ]
 
 const STACK: Sport[] = ['run', 'swim', 'ride', 'other']
@@ -96,41 +97,25 @@ export function VolumeChart({
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="mr-1 font-display text-xs font-semibold tracking-[0.16em] text-white/70">VOLUME</h2>
-        <div className="flex rounded-md bg-white/5 p-0.5">
-          {RANGES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onRange(item.id)}
-              className={`rounded px-2.5 py-1 text-xs ${range === item.id ? 'bg-white/15 text-white' : 'text-white/55'}`}
-            >
-              {item.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              setDraftStart(custom?.start ?? focus?.start ?? draftStart)
-              setDraftEnd(custom?.end ?? focus?.end ?? draftEnd)
-              setDatesOpen((open) => !open)
-            }}
-            className={`rounded px-2.5 py-1 text-xs ${!focus && range === 'custom' ? 'bg-white/15 text-white' : 'text-white/55'}`}
-          >
-            {!focus && range === 'custom' && custom ? formatWindow(custom) : 'Dates'}
-          </button>
-        </div>
-        <div className="flex rounded-md bg-white/5 p-0.5">
-          {METRICS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onMetric(item.id)}
-              className={`rounded px-2.5 py-1 text-xs ${metric === item.id ? 'bg-sky-400/20 text-sky-200' : 'text-white/55'}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <Segment
+          label="Date range"
+          value={range}
+          options={[
+            ...RANGES,
+            { id: 'custom', label: !focus && range === 'custom' && custom ? formatWindow(custom) : 'Custom' },
+          ]}
+          onChange={(next) => {
+            if (next !== 'custom') {
+              setDatesOpen(false)
+              onRange(next)
+              return
+            }
+            setDraftStart(custom?.start ?? focus?.start ?? draftStart)
+            setDraftEnd(custom?.end ?? focus?.end ?? draftEnd)
+            setDatesOpen((open) => !open)
+          }}
+        />
+        <Segment label="Metric" value={metric} options={METRICS} onChange={onMetric} />
       </div>
 
       {datesOpen ? (
@@ -215,7 +200,7 @@ export function VolumeChart({
             }}
           >
             <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} interval={rows.length > 16 ? 1 : 0} />
+            <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={6} />
             <YAxis width={36} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTotal(metric, value)} allowDecimals={false} />
             <Tooltip content={(props) => <VolumeTip active={props.active} row={props.payload?.[0]?.payload as VolumeRow | undefined} metric={metric} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
             {STACK.map((sport) => (
