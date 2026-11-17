@@ -4,13 +4,17 @@ import { ActivitiesProvider, useActivities } from './lib/activities'
 import { ActivitiesPage } from './pages/ActivitiesPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { LoadPage } from './pages/LoadPage'
-import { DEFAULT_MAX_HR, DEFAULT_ZONES, loadMaxHr, loadZones, saveMaxHr, saveZones, type ZoneEdges } from './lib/intensity'
+import { PlannerPage } from './pages/PlannerPage'
+import { ProfilePage } from './pages/ProfilePage'
+import { DEFAULT_MAX_HR, DEFAULT_REST_HR, DEFAULT_ZONES, loadMaxHr, loadRestHr, loadZones, saveMaxHr, saveRestHr, saveZones, type ZoneEdges } from './lib/intensity'
 
-type PagePath = '/' | '/load' | '/activities'
+type PagePath = '/' | '/load' | '/activities' | '/profile' | '/planner'
 
 const PAGES: { href: PagePath; label: string }[] = [
   { href: '/', label: 'Calendar' },
   { href: '/load', label: 'Load' },
+  { href: '/profile', label: 'Profile' },
+  { href: '/planner', label: 'Planner' },
   { href: '/activities', label: 'Activities' },
 ]
 
@@ -24,8 +28,7 @@ function currentPath(): PagePath {
   let path = window.location.pathname
   if (siteBase && path.startsWith(siteBase)) path = path.slice(siteBase.length)
   path = path.replace(/\/+$/, '') || '/'
-  if (path === '/load') return '/load'
-  if (path === '/activities') return '/activities'
+  if (path === '/load' || path === '/activities' || path === '/profile' || path === '/planner') return path
   return '/'
 }
 
@@ -45,9 +48,11 @@ export function App() {
   }
 
   const [maxHr, setMaxHr] = useState(loadMaxHr)
+  const [restHr, setRestHr] = useState(loadRestHr)
   const [zones, setZones] = useState<ZoneEdges>(loadZones)
 
   const updateMaxHr = (value: number) => setMaxHr(saveMaxHr(value))
+  const updateRestHr = (value: number) => setRestHr(saveRestHr(value))
   const updateZones = (values: number[]) => {
     const next = saveZones(values)
     setZones(next)
@@ -56,7 +61,7 @@ export function App() {
 
   return (
     <ActivitiesProvider>
-      <Shell path={path} go={go} maxHr={maxHr} onMaxHr={updateMaxHr} zones={zones} onZones={updateZones} />
+      <Shell path={path} go={go} maxHr={maxHr} onMaxHr={updateMaxHr} restHr={restHr} onRestHr={updateRestHr} zones={zones} onZones={updateZones} />
     </ActivitiesProvider>
   )
 }
@@ -66,6 +71,8 @@ function Shell({
   go,
   maxHr,
   onMaxHr,
+  restHr,
+  onRestHr,
   zones,
   onZones,
 }: {
@@ -73,6 +80,8 @@ function Shell({
   go: (href: PagePath) => void
   maxHr: number
   onMaxHr: (value: number) => void
+  restHr: number
+  onRestHr: (value: number) => void
   zones: ZoneEdges
   onZones: (values: number[]) => ZoneEdges
 }) {
@@ -97,7 +106,7 @@ function Shell({
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ImportZip />
-            <HrSettings maxHr={maxHr} onChange={onMaxHr} zones={zones} onZones={onZones} />
+            <HrSettings maxHr={maxHr} onChange={onMaxHr} restHr={restHr} onRest={onRestHr} zones={zones} onZones={onZones} />
           </div>
         </div>
       </header>
@@ -123,7 +132,17 @@ function Shell({
           <ActivitiesPage maxHr={maxHr} split={zones} />
         </main>
       ) : null}
-      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      {path === '/profile' ? (
+        <main>
+          <ProfilePage maxHr={maxHr} restHr={restHr} zones={zones} />
+        </main>
+      ) : null}
+      {path === '/planner' ? (
+        <main>
+          <PlannerPage />
+        </main>
+      ) : null}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {nav(true)}
       </nav>
     </div>
@@ -153,22 +172,28 @@ function ImportZip() {
 function HrSettings({
   maxHr,
   onChange,
+  restHr,
+  onRest,
   zones,
   onZones,
 }: {
   maxHr: number
   onChange: (value: number) => void
+  restHr: number
+  onRest: (value: number) => void
   zones: ZoneEdges
   onZones: (values: number[]) => ZoneEdges
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(String(maxHr))
+  const [restDraft, setRestDraft] = useState(String(restHr))
   const [zoneDraft, setZoneDraft] = useState(() => zones.map(String))
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     setDraft(String(maxHr))
+    setRestDraft(String(restHr))
     setZoneDraft(zones.map(String))
     const onPointer = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
@@ -182,7 +207,7 @@ function HrSettings({
       document.removeEventListener('mousedown', onPointer)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open, maxHr, zones])
+  }, [open, maxHr, restHr, zones])
 
   const apply = (raw: string) => {
     setDraft(raw)
@@ -199,6 +224,23 @@ function HrSettings({
     }
     onChange(parsed)
     setDraft(String(Math.min(230, Math.max(100, Math.round(parsed)))))
+  }
+
+  const applyRest = (raw: string) => {
+    setRestDraft(raw)
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed < 30 || parsed > 100) return
+    onRest(parsed)
+  }
+
+  const commitRest = () => {
+    const parsed = Number(restDraft)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setRestDraft(String(restHr))
+      return
+    }
+    onRest(parsed)
+    setRestDraft(String(Math.min(100, Math.max(30, Math.round(parsed)))))
   }
 
   const commitZones = () => {
@@ -240,6 +282,24 @@ function HrSettings({
               className="w-20 rounded-md border border-white/15 bg-black px-2 py-1 text-sm tabular-nums outline-none focus:border-white/40"
             />
             <span className="text-xs text-white/55">bpm · default {DEFAULT_MAX_HR}</span>
+          </label>
+
+          <p className="mt-4 text-sm font-medium">Resting heart rate</p>
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <input
+              type="number"
+              min={30}
+              max={100}
+              inputMode="numeric"
+              value={restDraft}
+              onChange={(event) => applyRest(event.target.value)}
+              onBlur={commitRest}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+              className="w-20 rounded-md border border-white/15 bg-black px-2 py-1 text-sm tabular-nums outline-none focus:border-white/40"
+            />
+            <span className="text-xs text-white/55">bpm · profile reserve · default {DEFAULT_REST_HR}</span>
           </label>
 
           <p className="mt-4 text-sm font-medium">Five zones</p>
@@ -327,11 +387,11 @@ function NavItem({
         event.preventDefault()
         onNavigate(href)
       }}
-      className={`relative px-3 ${tab ? 'flex h-14 flex-col items-center justify-center gap-1 text-[10px] leading-none' : 'py-4 text-sm'} ${active ? 'text-sky-300' : 'text-white/70'}`}
+      className={`relative ${tab ? 'flex h-14 flex-col items-center justify-center gap-1 px-0.5 text-[10px] leading-none' : 'px-3 py-4 text-sm'} ${active ? 'text-sky-300' : 'text-white/70'}`}
     >
       {tab ? <NavIcon href={href} /> : null}
       {children}
-      {active ? <span className={`absolute h-0.5 bg-sky-300 ${tab ? 'inset-x-8 top-0' : 'inset-x-3 bottom-0'}`} /> : null}
+      {active ? <span className={`absolute h-0.5 bg-sky-300 ${tab ? 'inset-x-2 top-0' : 'inset-x-3 bottom-0'}`} /> : null}
     </a>
   )
 }
@@ -351,6 +411,22 @@ function NavIcon({ href }: { href: PagePath }) {
       <svg {...props}>
         <path d="M3 14.5 7.2 10l2.4 2.4L17 5" />
         <path d="M13 5h4v4" />
+      </svg>
+    )
+  }
+  if (href === '/profile') {
+    return (
+      <svg {...props}>
+        <circle cx="10" cy="7" r="2.4" />
+        <path d="M4.8 16.2c.8-2.6 2.7-3.7 5.2-3.7s4.4 1.1 5.2 3.7" />
+      </svg>
+    )
+  }
+  if (href === '/planner') {
+    return (
+      <svg {...props}>
+        <rect x="3.5" y="4" width="13" height="12.5" rx="2" />
+        <path d="M3.5 8h13M7 11.2h2.2M10.8 11.2H13" />
       </svg>
     )
   }

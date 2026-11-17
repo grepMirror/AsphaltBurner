@@ -24,10 +24,14 @@ export const INTENSITY_CELL: Record<Intensity, { bg: string; fg: string; bars: [
 const RANK: Record<Intensity, number> = { easy: 0, medium: 1, hard: 2 }
 
 export const DEFAULT_MAX_HR = 200
+export const DEFAULT_REST_HR = 60
 const MAX_HR_KEY = 'asphaltburner.hrMax'
+const REST_HR_KEY = 'asphaltburner.hrRest'
 const ZONE_KEY = 'asphaltburner.zoneEdges'
 const MAX_HR_MIN = 100
 const MAX_HR_MAX = 230
+const REST_HR_MIN = 30
+const REST_HR_MAX = 100
 
 /** Upper bounds, in percent of max heart rate, for Z1, Z2, Z3 and Z4. Z5 is everything above the last. */
 export type ZoneEdges = readonly [number, number, number, number]
@@ -57,6 +61,36 @@ export function saveMaxHr(value: number): number {
     /* the value still applies for this visit */
   }
   return next
+}
+
+export function clampRestHr(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_REST_HR
+  return Math.min(REST_HR_MAX, Math.max(REST_HR_MIN, Math.round(value)))
+}
+
+export function loadRestHr(): number {
+  try {
+    const raw = localStorage.getItem(REST_HR_KEY)
+    if (raw === null || raw.trim() === '') return DEFAULT_REST_HR
+    return clampRestHr(Number(raw))
+  } catch {
+    return DEFAULT_REST_HR
+  }
+}
+
+export function saveRestHr(value: number): number {
+  const next = clampRestHr(value)
+  try {
+    localStorage.setItem(REST_HR_KEY, String(next))
+  } catch {
+    /* the value still applies for this visit */
+  }
+  return next
+}
+
+/** Resting rate used for heart-rate reserve. Stays at least 30 bpm under max. */
+export function reserveRest(maxHr: number, restHr: number): number {
+  return Math.min(clampRestHr(restHr), maxHr - 30)
 }
 
 export function clampZones(values: readonly number[]): ZoneEdges {
