@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { formatDistance, formatDuration, formatPaceOrSpeed } from '../lib/format'
@@ -6,6 +6,7 @@ import { DEFAULT_ZONES, INTENSITY_COLOR, intensityFromHeartRate, type ZoneEdges 
 import { deriveSamples, distanceSplits, formatPace, median, smooth, type DistanceSplit } from '../lib/series'
 import type { Activity } from '../types'
 import { CURSOR, GRID, SERIES, TICK } from './chartChrome'
+import { Collapse } from './Collapse'
 
 type Axis = 'time' | 'distance'
 
@@ -53,9 +54,13 @@ export function SessionView({
   const current = hover === null ? null : samples[hover]
   const when = new Date(activity.date)
 
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [activity.id])
+
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="text-sm text-white/60 hover:text-white">
+      <button type="button" onClick={onBack} className="-my-2 py-2 text-sm text-white/60 hover:text-white">
         {backLabel}
       </button>
       <header>
@@ -83,7 +88,7 @@ export function SessionView({
                     key={item}
                     type="button"
                     onClick={() => setAxis(item)}
-                    className={`rounded px-2.5 py-1 text-xs capitalize ${axis === item ? 'bg-sky-400/20 text-sky-100' : 'text-white/55'}`}
+                    className={`rounded px-2.5 py-1.5 text-xs sm:py-1 capitalize ${axis === item ? 'bg-sky-400/20 text-sky-100' : 'text-white/55'}`}
                   >
                     {item}
                   </button>
@@ -146,7 +151,7 @@ export function SessionView({
                     {current.cad === null ? '' : ` · ${Math.round(current.cad)} spm`}
                   </>
                 ) : (
-                  <span className="text-white/40">Move across the charts to read altitude, pace and heart rate together.</span>
+                  <span className="text-white/40">Slide across the charts to read altitude, pace and heart rate together.</span>
                 )}
               </span>
               <span className="shrink-0 text-[11px] text-white/35">{axis === 'time' ? 'time (h:mm)' : 'distance (km)'}</span>
@@ -232,6 +237,7 @@ function StreamLayer({
             syncMethod="index"
             margin={{ top: 8, right: 8, left: 0, bottom: showAxis ? 4 : 0 }}
             onMouseMove={(state) => onHover(hoverIndex(state.activeTooltipIndex, rows.length))}
+            onTouchMove={(state) => onHover(hoverIndex(state.activeTooltipIndex, rows.length))}
           >
             <CartesianGrid vertical={false} stroke={GRID} />
             <XAxis
@@ -344,7 +350,7 @@ function PaceBySplit({
                 key={meters}
                 type="button"
                 onClick={() => onSplit(meters)}
-                className={`rounded px-2.5 py-1 text-xs ${splitM === meters ? 'bg-sky-400/20 text-sky-100' : 'text-white/55'}`}
+                className={`rounded px-2.5 py-1.5 text-xs sm:py-1 ${splitM === meters ? 'bg-sky-400/20 text-sky-100' : 'text-white/55'}`}
               >
                 {meters === 1000 ? '1 km' : '5 km'}
               </button>
@@ -355,7 +361,9 @@ function PaceBySplit({
       {splits.length === 0 ? (
         <p className="mt-4 text-sm text-white/45">Not enough distance to build a split.</p>
       ) : (
-        <SplitBars splits={splits} maxHr={maxHr} split={split} />
+        <Collapse label={`${splits.length} splits`} className="mt-2 lg:mt-0">
+          <SplitBars splits={splits} maxHr={maxHr} split={split} />
+        </Collapse>
       )}
     </section>
   )
