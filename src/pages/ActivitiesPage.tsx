@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityMap } from '../components/ActivityMap'
+import { Collapse } from '../components/Collapse'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
 import { VolumeChart } from '../components/VolumeChart'
@@ -18,10 +19,12 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
   const [metric, setMetric] = useState<MetricId>('km')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [sessionOpen, setSessionOpen] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
 
   useEffect(() => {
     setSelectedId(null)
+    setSessionOpen(false)
     setDetailId(null)
     setFocusWeek(null)
     setRange('12m')
@@ -47,6 +50,7 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
 
   const selectActivity = (id: string) => {
     setSelectedId(id)
+    setSessionOpen(true)
     const activity = activities.find((item) => item.id === id)
     if (!activity) return
     const when = new Date(activity.date)
@@ -75,10 +79,10 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
 
   return (
     <div className="relative">
-      <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <header className="mb-4 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Activities</h1>
-          <p className="mt-1 text-sm text-white/55">Sessions from a Strava export. A direct connector can replace the zip later.</p>
+          <p className="mt-1 hidden text-sm text-white/55 sm:block">Sessions from a Strava export. A direct connector can replace the zip later.</p>
         </div>
         {activities.length > 0 ? (
           <button
@@ -101,7 +105,7 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
 
       {activities.length === 0 ? <p className="py-16 text-center text-sm text-white/55">No activity found</p> : (
         <div className="space-y-4">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-4 gap-2">
             {SPORTS.map((sport) => {
               const on = sports.has(sport)
               return (
@@ -110,15 +114,15 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
                   type="button"
                   aria-pressed={on}
                   onClick={() => toggleSport(sport)}
-                  className={`flex items-center justify-between rounded-lg border px-3 py-3 text-left text-sm ${
+                  className={`flex items-center justify-center gap-2 rounded-lg border px-2 py-2.5 text-left text-sm sm:justify-between sm:px-3 sm:py-3 ${
                     on ? 'border-white/15 bg-white/[0.04]' : 'border-white/5 bg-transparent text-white/35'
                   }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
                     <SportIcon sport={sport} className="h-4 w-4" />
-                    {SPORT_LABEL[sport]}
+                    <span className="truncate">{SPORT_LABEL[sport]}</span>
                   </span>
-                  <span className={on ? 'text-sky-300' : 'text-white/25'}>{on ? '✓' : ''}</span>
+                  <span className={`hidden sm:inline ${on ? 'text-sky-300' : 'text-white/25'}`}>{on ? '✓' : ''}</span>
                 </button>
               )
             })}
@@ -145,53 +149,57 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
           />
 
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <section className="rounded-xl border border-white/10 bg-white/[0.03]">
-              <div className="border-b border-white/10 p-3">
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search sessions"
-                  className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none placeholder:text-white/35"
-                />
-              </div>
-              {visible.length === 0 ? (
-                <p className="px-4 py-10 text-center text-sm text-white/50">No session in this period.</p>
-              ) : (
-                <ul className="max-h-[640px] divide-y divide-white/5 overflow-auto">
-                  {visible.map((activity) => {
-                    const active = activity.id === selectedId
-                    return (
-                      <li key={activity.id}>
-                        <button
-                          type="button"
-                          onClick={() => selectActivity(activity.id)}
-                          className={`flex w-full items-start justify-between gap-3 px-4 py-3 text-left ${active ? 'bg-sky-400/10' : 'hover:bg-white/[0.03]'}`}
-                        >
-                          <span>
-                            <span className="block text-sm font-medium">{activity.name}</span>
-                            <span className="mt-1 flex items-center gap-2 text-xs text-white/50">
-                              <SportIcon sport={activity.sport} className="h-3.5 w-3.5" />
-                              {SPORT_LABEL[activity.sport]} · {formatWhen(activity.date)}
+            <section className="order-2 rounded-xl border border-white/10 bg-white/[0.03] lg:order-1">
+              <Collapse label={`Sessions · ${visible.length}`} className="px-4 lg:px-0">
+                <div className="border-b border-white/10 p-3">
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search sessions"
+                    className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none placeholder:text-white/35"
+                  />
+                </div>
+                {visible.length === 0 ? (
+                  <p className="px-4 py-10 text-center text-sm text-white/50">No session in this period.</p>
+                ) : (
+                  <ul className="max-h-[45vh] divide-y divide-white/5 overflow-auto lg:max-h-[640px]">
+                    {visible.map((activity) => {
+                      const active = activity.id === selectedId
+                      return (
+                        <li key={activity.id}>
+                          <button
+                            type="button"
+                            onClick={() => selectActivity(activity.id)}
+                            className={`flex w-full items-start justify-between gap-3 px-4 py-3 text-left ${active ? 'bg-sky-400/10' : 'hover:bg-white/[0.03]'}`}
+                          >
+                            <span>
+                              <span className="block text-sm font-medium">{activity.name}</span>
+                              <span className="mt-1 flex items-center gap-2 text-xs text-white/50">
+                                <SportIcon sport={activity.sport} className="h-3.5 w-3.5" />
+                                {SPORT_LABEL[activity.sport]} · {formatWhen(activity.date)}
+                              </span>
                             </span>
-                          </span>
-                          <span className="text-right text-xs text-white/70">
-                            <span className="block">{formatDistance(activity.distanceM)}</span>
-                            <span className="text-white/45">{formatDuration(activity.movingSec)}</span>
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                            <span className="text-right text-xs text-white/70">
+                              <span className="block">{formatDistance(activity.distanceM)}</span>
+                              <span className="text-white/45">{formatDuration(activity.movingSec)}</span>
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </Collapse>
             </section>
-            <div className="flex flex-col gap-4">
+            <div className="order-1 flex flex-col gap-4 lg:order-2">
               <ActivityMap activities={visible} maxHr={maxHr} split={split} selectedId={selected?.id ?? null} onSelect={selectActivity} />
               {selected ? (
-                <ActivityDetail activity={selected} peers={sportFiltered} onOpen={() => setDetailId(selected.id)} />
+                <Collapse label={selected.name} open={sessionOpen} onOpenChange={setSessionOpen} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 lg:order-last lg:border-0 lg:bg-transparent lg:px-0">
+                  <ActivityDetail activity={selected} peers={sportFiltered} onOpen={() => setDetailId(selected.id)} />
+                </Collapse>
               ) : (
-                <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-white/45">
-                  Click a session in the list or on the map.
+                <p className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-6 text-sm text-white/45 lg:order-last">
+                  Select a session in the list or on the map.
                 </p>
               )}
             </div>
@@ -219,9 +227,13 @@ function ActivityDetail({ activity, peers, onOpen }: { activity: Activity; peers
   const stamp = Number.isNaN(when.getTime())
     ? activity.date
     : `${when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · ${when.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+  const rootRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 1023px)').matches) rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [activity.id])
 
   return (
-    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <section ref={rootRef} className="scroll-mb-20 scroll-mt-16 py-3 lg:rounded-xl lg:border lg:border-white/10 lg:bg-white/[0.03] lg:p-4">
       <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-sky-300">
         <SportIcon sport={activity.sport} className="h-3.5 w-3.5" />
         {SPORT_LABEL[activity.sport]}
@@ -231,7 +243,7 @@ function ActivityDetail({ activity, peers, onOpen }: { activity: Activity; peers
         {activity.type} · {stamp}
         {activity.track.length < 2 ? ' · no GPS track' : ''}
       </p>
-      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <dl className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-5">
         <Stat label="Distance" value={formatDistance(activity.distanceM)} />
         <Stat label="Time" value={formatDuration(activity.movingSec)} />
         <Stat label={activity.sport === 'ride' ? 'Avg. speed' : 'Avg. pace'} value={formatPaceOrSpeed(activity)} />

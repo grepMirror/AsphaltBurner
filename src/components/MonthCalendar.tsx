@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Collapse } from './Collapse'
 import { SportIcon } from './SportIcon'
 import type { DayCell, MonthCalendar as MonthModel } from '../lib/calendar'
 import { SPORTS, SPORT_LABEL } from '../lib/format'
@@ -28,39 +29,40 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
     })
   }
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-7">
-      <div className="flex flex-wrap items-end justify-between gap-5">
-        <h1 className="font-display text-[44px] font-semibold leading-none tracking-tight">{model.title}</h1>
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4 sm:gap-7">
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:items-end sm:gap-5">
+        <h1 className="font-display text-[26px] font-semibold leading-none tracking-tight sm:text-[44px]">{model.title}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {actions}
-          <button type="button" className="cal-btn grid h-11 w-11 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] p-0 text-[#E8EAF0]" onClick={onPrev} aria-label="Previous month">
+          <button type="button" className="cal-btn grid h-10 w-10 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] p-0 text-[#E8EAF0] sm:h-11 sm:w-11" onClick={onPrev} aria-label="Previous month">
             <Chevron direction="left" />
           </button>
-          <button type="button" className="cal-btn h-11 rounded-xl border border-[#262C3B] bg-[#12161E] px-5 text-sm font-semibold text-[#E8EAF0]" onClick={onToday}>
+          <button type="button" className="cal-btn h-10 rounded-xl border border-[#262C3B] bg-[#12161E] px-3 text-sm font-semibold text-[#E8EAF0] sm:h-11 sm:px-5" onClick={onToday}>
             Today
           </button>
-          <button type="button" className="cal-btn grid h-11 w-11 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] p-0 text-[#E8EAF0]" onClick={onNext} aria-label="Next month">
+          <button type="button" className="cal-btn grid h-10 w-10 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] p-0 text-[#E8EAF0] sm:h-11 sm:w-11" onClick={onNext} aria-label="Next month">
             <Chevron direction="right" />
           </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3.5">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3.5">
         {model.tiles.map((tile) => (
-          <div key={tile.label} className="flex min-w-[220px] flex-1 flex-col gap-2 rounded-2xl border border-[#1E2330] bg-[#12161E] px-5 py-[18px]">
-            <span className="text-xs font-medium uppercase tracking-[0.06em] text-[#9AA3B5]">{tile.label}</span>
+          <div key={tile.label} className="flex min-w-0 flex-col gap-1 rounded-xl border border-[#1E2330] bg-[#12161E] px-3.5 py-3 sm:min-w-[220px] sm:flex-1 sm:gap-2 sm:rounded-2xl sm:px-5 sm:py-[18px]">
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-[#9AA3B5] sm:text-xs">{tile.label}</span>
             <div className="flex items-baseline gap-1.5">
-              <span className="cal-num text-[34px] font-semibold leading-none tracking-tight tabular-nums">{tile.value}</span>
+              <span className="cal-num text-2xl font-semibold leading-none tracking-tight tabular-nums sm:text-[34px]">{tile.value}</span>
               {tile.unit ? <span className="text-sm font-medium text-[#9AA3B5]">{tile.unit}</span> : null}
             </div>
-            <span className="text-[13px] text-[#9AA3B5]">{tile.sub}</span>
+            <span className="truncate text-[11px] text-[#9AA3B5] sm:text-[13px]">{tile.sub}</span>
           </div>
         ))}
       </div>
 
-      <div className={`cal-board cal-pad flex flex-col gap-[18px] rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px] ${showTotals ? '' : 'is-totals-hidden'}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2">
+      <div className={`cal-board cal-pad flex flex-col gap-3 rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px] sm:gap-[18px] ${showTotals ? '' : 'is-totals-hidden'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-x-3">
+        <Collapse label="Legend" className="order-last w-full lg:order-none lg:w-auto">
+        <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2 pb-1 lg:pb-0">
           {model.legend.map((item) => (
             <div key={item.id} className="flex items-center gap-2 text-[13px]">
               <span className="flex h-5 w-[30px] items-end justify-center gap-0.5 rounded-md pb-1" style={{ background: item.bg, color: item.fg }}>
@@ -78,13 +80,13 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
             <span className="text-[#9AA3B5]">{model.restDays === 1 ? '1 day' : `${model.restDays} days`}</span>
           </div>
         </div>
+        </Collapse>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              
               aria-pressed={showTotals}
               onClick={toggleTotals}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs ${showTotals ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
+              className={`flex h-10 items-center gap-1.5 rounded-md px-3 text-xs sm:h-auto sm:px-2.5 sm:py-1 ${showTotals ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
             >
               Week totals
             </button>
@@ -95,7 +97,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
         <div className="cal-weekhead">
           <div className="cal-days">
             {WEEKDAYS.map((day) => (
-              <span key={day} className="pl-1 text-xs font-medium uppercase tracking-[0.06em] text-[#9AA3B5]">
+              <span key={day} className="pl-1 text-[11px] font-medium sm:text-xs uppercase tracking-[0.06em] text-[#9AA3B5]">
                 {day}
               </span>
             ))}
@@ -156,7 +158,7 @@ function DayCellView({ day, selected, onSelect }: { day: DayCell; selected: bool
           <span />
         )}
       </div>
-      <div className="flex flex-1 items-center justify-center gap-1">
+      <div className="cal-icons flex flex-1 items-center justify-center gap-1">
         {day.sports.map((sport) => (
           <SportIcon key={sport} sport={sport} className={day.sports.length > 1 ? 'h-6 w-6' : 'cal-sport h-8 w-8'} />
         ))}
@@ -213,7 +215,7 @@ function SportFilter({ sports, onToggle }: { sports: Set<Sport>; onToggle: (spor
     <div ref={rootRef} className="relative">
       <button
         type="button"
-        className={`cal-btn flex h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${open ? 'border-[#E8EAF0] bg-[#1C2231] text-[#E8EAF0]' : 'border-[#262C3B] bg-[#12161E] text-[#E8EAF0]'}`}
+        className={`cal-btn flex h-10 items-center sm:h-11 gap-2 rounded-xl border px-3 text-sm font-semibold ${open ? 'border-[#E8EAF0] bg-[#1C2231] text-[#E8EAF0]' : 'border-[#262C3B] bg-[#12161E] text-[#E8EAF0]'}`}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={`Filter activities, ${summary}`}
@@ -227,7 +229,7 @@ function SportFilter({ sports, onToggle }: { sports: Set<Sport>; onToggle: (spor
         </span>
       </button>
       {open ? (
-        <div role="dialog" aria-label="Activities" className="absolute right-0 z-30 mt-2 w-56 rounded-2xl border border-[#262C3B] bg-[#12161E] p-2 shadow-xl">
+        <div role="dialog" aria-label="Activities" className="absolute left-0 z-30 mt-2 w-56 lg:left-auto lg:right-0 rounded-2xl border border-[#262C3B] bg-[#12161E] p-2 shadow-xl">
           {SPORTS.map((sport) => {
             const on = sports.has(sport)
             return (

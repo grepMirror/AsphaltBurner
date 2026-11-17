@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Collapse } from './components/Collapse'
 import { ActivitiesProvider, useActivities } from './lib/activities'
 import { ActivitiesPage } from './pages/ActivitiesPage'
 import { CalendarPage } from './pages/CalendarPage'
@@ -6,6 +7,12 @@ import { LoadPage } from './pages/LoadPage'
 import { DEFAULT_MAX_HR, DEFAULT_ZONES, loadMaxHr, loadZones, saveMaxHr, saveZones, type ZoneEdges } from './lib/intensity'
 
 type PagePath = '/' | '/load' | '/activities'
+
+const PAGES: { href: PagePath; label: string }[] = [
+  { href: '/', label: 'Calendar' },
+  { href: '/load', label: 'Load' },
+  { href: '/activities', label: 'Activities' },
+]
 
 const siteBase = import.meta.env.BASE_URL.replace(/\/$/, '')
 
@@ -70,25 +77,23 @@ function Shell({
   onZones: (values: number[]) => ZoneEdges
 }) {
   const { progress, error } = useActivities()
+  const nav = (tab: boolean) =>
+    PAGES.map((page) => (
+      <NavItem key={page.href} href={page.href} active={path === page.href} onNavigate={go} tab={tab}>
+        {page.label}
+      </NavItem>
+    ))
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 backdrop-blur">
+    <div className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
           <div className="flex items-center gap-2 font-display text-sm font-semibold tracking-[0.16em]">
             <Mark />
             AsphaltBurner
           </div>
-          <nav aria-label="Main" className="flex items-center">
-            <NavItem href="/" active={path === '/'} onNavigate={go}>
-              Calendar
-            </NavItem>
-            <NavItem href="/load" active={path === '/load'} onNavigate={go}>
-              Load
-            </NavItem>
-            <NavItem href="/activities" active={path === '/activities'} onNavigate={go}>
-              Activities
-            </NavItem>
+          <nav aria-label="Main" className="hidden items-center md:flex">
+            {nav(false)}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ImportZip />
@@ -118,6 +123,9 @@ function Shell({
           <ActivitiesPage maxHr={maxHr} split={zones} />
         </main>
       ) : null}
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+        {nav(true)}
+      </nav>
     </div>
   )
 }
@@ -126,7 +134,7 @@ function ImportZip() {
   const { importFile, progress } = useActivities()
 
   return (
-    <label className="cursor-pointer rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">
+    <label className="cursor-pointer whitespace-nowrap rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">
       {progress ? 'Importing…' : 'Import zip'}
       <input
         className="sr-only"
@@ -215,7 +223,7 @@ function HrSettings({
         <Gear />
       </button>
       {open ? (
-        <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-white/10 bg-[#12161E] p-4 shadow-xl">
+        <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 max-h-[calc(100dvh-8rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-[#12161E] p-4 shadow-xl">
           <p className="text-sm font-medium">Max heart rate</p>
           <label className="mt-2 flex items-center gap-2 text-sm">
             <input
@@ -235,9 +243,11 @@ function HrSettings({
           </label>
 
           <p className="mt-4 text-sm font-medium">Five zones</p>
-          <p className="mt-1 text-xs leading-relaxed text-white/45">
-            Each sample is a percent of max heart rate. Z1 is under the first value, each next zone runs up to the next value, and Z5 is the rest. Easy is Z1–Z2, medium is Z3, hard is Z4–Z5. Defaults are {DEFAULT_ZONES.join(', ')}.
-          </p>
+          <Collapse label="How zones work">
+            <p className="mt-1 text-xs leading-relaxed text-white/45">
+              Each sample is a percent of max heart rate. Z1 is under the first value, each next zone runs up to the next value, and Z5 is the rest. Easy is Z1–Z2, medium is Z3, hard is Z4–Z5. Defaults are {DEFAULT_ZONES.join(', ')}.
+            </p>
+          </Collapse>
           <div className="mt-3 grid grid-cols-2 gap-2">
             {zoneDraft.map((value, index) => (
               <PercentField
@@ -299,11 +309,13 @@ function NavItem({
   href,
   active,
   onNavigate,
+  tab,
   children,
 }: {
   href: PagePath
   active: boolean
   onNavigate: (href: PagePath) => void
+  tab: boolean
   children: string
 }) {
   return (
@@ -315,11 +327,37 @@ function NavItem({
         event.preventDefault()
         onNavigate(href)
       }}
-      className={`relative px-3 py-4 text-sm ${active ? 'text-sky-300' : 'text-white/70'}`}
+      className={`relative px-3 ${tab ? 'flex h-14 flex-col items-center justify-center gap-1 text-[10px] leading-none' : 'py-4 text-sm'} ${active ? 'text-sky-300' : 'text-white/70'}`}
     >
+      {tab ? <NavIcon href={href} /> : null}
       {children}
-      {active ? <span className="absolute inset-x-3 bottom-0 h-0.5 bg-sky-300" /> : null}
+      {active ? <span className={`absolute h-0.5 bg-sky-300 ${tab ? 'inset-x-8 top-0' : 'inset-x-3 bottom-0'}`} /> : null}
     </a>
+  )
+}
+
+function NavIcon({ href }: { href: PagePath }) {
+  const props = { width: 20, height: 20, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true as const }
+  if (href === '/') {
+    return (
+      <svg {...props}>
+        <rect x="3.5" y="4" width="13" height="12.5" rx="2" />
+        <path d="M3.5 8h13M7.5 4V2.8M12.5 4V2.8" />
+      </svg>
+    )
+  }
+  if (href === '/load') {
+    return (
+      <svg {...props}>
+        <path d="M3 14.5 7.2 10l2.4 2.4L17 5" />
+        <path d="M13 5h4v4" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...props}>
+      <path d="M4 6.5h12M4 10h12M4 13.5h8" />
+    </svg>
   )
 }
 
