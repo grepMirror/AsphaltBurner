@@ -2,7 +2,7 @@ import type { Activity, DateWindow } from '../types'
 import { heartRateZone, intensityFromHeartRate, INTENSITY_COLOR, type ZoneEdges, DEFAULT_ZONES } from './intensity'
 import { formatDayInput, formatWindow, parseDay, startOfWeek, windowBounds } from './period'
 
-export type LoadRange = '4w' | '8w' | '12w' | 'custom'
+export type LoadRange = 'current' | '4w' | '8w' | '12w' | 'custom'
 export type LoadMetric = 'volume' | 'hour' | 'elevation'
 export type ZoneStyle = '5' | '3'
 
@@ -33,7 +33,7 @@ export type LoadWeek = {
   start: number
   values: Record<string, number>
   total: number
-  /** Percent change against the previous week. Empty on the first week and when the previous week is zero. */
+  /** Percent change against the previous bar. Empty on the first bar and when the previous bar is zero. */
   change: number | null
 }
 
@@ -51,8 +51,14 @@ export function loadBounds(range: LoadRange, custom: DateWindow | null, now = ne
   if (range === 'custom' && custom) return windowBounds(custom)
   const end = new Date(now)
   end.setHours(23, 59, 59, 999)
-  const weeks = range === '4w' ? 4 : range === '12w' ? 12 : 8
   const start = startOfWeek(end)
+  if (range === 'current') {
+    const sunday = new Date(start)
+    sunday.setDate(sunday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+    return { start: start.getTime(), end: sunday.getTime() }
+  }
+  const weeks = range === '4w' ? 4 : range === '12w' ? 12 : 8
   start.setDate(start.getDate() - (weeks - 1) * 7)
   return { start: start.getTime(), end: end.getTime() }
 }
@@ -101,18 +107,21 @@ function metricAmount(activity: Activity, metric: LoadMetric): number {
 
 export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom: DateWindow | null, metric: LoadMetric, style: ZoneStyle, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, now = new Date()): LoadWeek[] {
   const bounds = loadBounds(range, custom, now)
+  const byDay = range === 'current'
   const bands = ZONE_BANDS[style]
   const starts: Date[] = []
-  const cursor = startOfWeek(new Date(bounds.start))
-  while (cursor.getTime() <= bounds.end && starts.length < 60) {
+  const cursor = byDay ? new Date(bounds.start) : startOfWeek(new Date(bounds.start))
+  cursor.setHours(0, 0, 0, 0)
+  const step = byDay ? 1 : 7
+  while (cursor.getTime() <= bounds.end && starts.length < (byDay ? 7 : 60)) {
     starts.push(new Date(cursor))
-    cursor.setDate(cursor.getDate() + 7)
+    cursor.setDate(cursor.getDate() + step)
   }
-  if (starts.length === 0) starts.push(startOfWeek(new Date(bounds.end)))
+  if (starts.length === 0) starts.push(byDay ? new Date(bounds.start) : startOfWeek(new Date(bounds.end)))
 
   const weeks = starts.map((start) => {
     const next = new Date(start)
-    next.setDate(next.getDate() + 7)
+    next.setDate(next.getDate() + step)
     const values: Record<string, number> = {}
     for (const band of bands) values[band.key] = 0
     for (const activity of activities) {
@@ -128,7 +137,9 @@ export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom:
     }
     const total = bands.reduce((sum, band) => sum + values[band.key], 0)
     return {
-      label: start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+      label: byDay
+        ? start.toLocaleDateString('en-GB', { weekday: 'short' })
+        : start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
       start: start.getTime(),
       values,
       total,
@@ -176,4 +187,17 @@ export function parseCustomDraft(start: string, end: string): DateWindow | null 
   const to = parseDay(end)
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null
   return from.getTime() <= to.getTime() ? { start, end } : { start: end, end: start }
+}
+
+/** ponytail: one check for the current-week day buckets. `npx tsx src/lib/load.ts` */
+const entry = (globalThis as { process?: { argv?: string[] } }).process?.argv?.[1]
+if (entry?.endsWith('load.ts')) {
+  const now = new Date(2026, 10, 17, 12)
+  const tuesday = { id: 'tue', name: 'Tue', type: 'Run', sport: 'run', date: now.toISOString(), movingSec: 3600, elapsedSec: 3600, distanceM: 10_000, elevationM: 0, avgHr: 140, track: [], stream: [] } as Activity
+  const bars = buildLoadWeeks([tuesday], 'current', null, 'volume', '3', 180, undefined, now)
+  const labels = bars.map((bar) => bar.label).join()
+  const hit = bars.filter((bar) => bar.total > 0)
+  if (labels !== 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' || hit.length !== 1 || hit[0].label !== 'Tue') {
+    throw new Error(`current week: ${labels} hit ${hit.map((bar) => bar.label).join()}`)
+  }
 }

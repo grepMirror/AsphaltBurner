@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
 import { Segment } from '../components/Segment'
@@ -20,6 +20,7 @@ import type { ZoneEdges } from '../lib/intensity'
 import type { DateWindow } from '../types'
 
 const RANGES: { id: LoadRange; label: string }[] = [
+  { id: 'current', label: 'Current' },
   { id: '4w', label: '4 wk' },
   { id: '8w', label: '8 wk' },
   { id: '12w', label: '12 wk' },
@@ -46,9 +47,21 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
   const windowLabel = loadWindowLabel(range, custom)
   const weeks = useMemo(() => buildLoadWeeks(activities, range, custom, metric, style, maxHr, split), [activities, range, custom, metric, style, maxHr, split])
   const shares = useMemo(() => periodZoneShares(activities, range, custom, polarStyle, maxHr, split), [activities, range, custom, polarStyle, maxHr, split])
-  const rows = weeks.map((week) => ({ label: week.label, total: week.total, change: week.change, ...week.values }))
+  const rows = weeks.map((week, index) => {
+    const previous = index > 0 ? weeks[index - 1].total : 0
+    return {
+      label: week.label,
+      total: week.total,
+      change: week.change,
+      bandLow: previous > 0 ? previous * 0.8 : null,
+      bandHigh: previous > 0 ? previous * 1.2 : null,
+      ...week.values,
+    }
+  })
   const unit = METRICS.find((item) => item.id === metric)?.unit ?? ''
   const hasBars = weeks.some((week) => week.total > 0)
+  const byDay = range === 'current'
+  const barNoun = byDay ? 'day' : 'week'
 
   const chooseRange = (next: LoadRange) => {
     if (next === 'custom') {
@@ -117,23 +130,25 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs sm:py-1 ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
             >
               <LoadMark />
-              Week change
+              {byDay ? 'Day change' : 'Week change'}
             </button>
           </div>
 
-          {ready && !hasBars ? <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period, so the zones cannot be split.</p> : null}
-          {hasBars ? (
+          {ready && !hasBars && !byDay ? <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period, so the zones cannot be split.</p> : null}
+          {hasBars || byDay ? (
             <>
               <div className="mt-4 h-[260px] sm:h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={rows} margin={{ top: 12, right: showLoad ? 12 : 8, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke={GRID} />
                     <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} minTickGap={16} />
-                    <YAxis width={48} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTick(metric, value)} />
+                    <YAxis width={48} domain={[0, 'auto']} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTick(metric, value)} />
                     {showLoad ? (
                       <YAxis yAxisId="change" orientation="right" width={42} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => `${Math.round(value)}%`} />
                     ) : null}
-                    <Tooltip content={(props) => <LoadTip {...props} metric={metric} showLoad={showLoad} style={style} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Tooltip content={(props) => <LoadTip {...props} metric={metric} showLoad={showLoad} style={style} barNoun={barNoun} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Line dataKey="bandHigh" stroke="none" dot={false} activeDot={false} legendType="none" tooltipType="none" isAnimationActive={false} />
+                    <LoadWindow rows={rows} />
                     {ZONE_BANDS[style].map((band, index) => (
                       <Bar
                         key={band.key}
@@ -158,13 +173,17 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
                     {band.label}
                   </span>
                 ))}
+                <span className="flex items-center gap-2 text-xs text-[#9AA3B5]">
+                  <span className="h-2.5 w-4 rounded-sm bg-white/15" />
+                  ±20% of previous {barNoun}
+                </span>
                 {showLoad ? (
                   <span className="flex items-center gap-2 text-xs text-[#9AA3B5]">
                     <span className="h-0.5 w-4 bg-[#E8EAF0]" />
-                    Week change
+                    {byDay ? 'Day change' : 'Week change'}
                   </span>
                 ) : null}
-                <span className="ml-auto text-xs text-[#9AA3B5]">Weeks · {unit}</span>
+                <span className="ml-auto text-xs text-[#9AA3B5]">{byDay ? 'Days' : 'Weeks'} · {unit}</span>
               </div>
             </>
           ) : null}
@@ -241,7 +260,8 @@ function LoadTip({
   metric,
   showLoad,
   style,
-}: TooltipContentProps & { metric: LoadMetric; showLoad: boolean; style: ZoneStyle }) {
+  barNoun,
+}: TooltipContentProps & { metric: LoadMetric; showLoad: boolean; style: ZoneStyle; barNoun: 'day' | 'week' }) {
   const row = payload?.[0]?.payload as ({ label: string; total: number; change: number | null } & Record<string, number>) | undefined
   if (!active || !row) return null
   return (
@@ -260,8 +280,36 @@ function LoadTip({
           )
         })}
       </ul>
-      {showLoad && row.change !== null ? <p className="mt-1 text-white/70">{row.change > 0 ? '+' : ''}{Math.round(row.change)}% vs previous week</p> : null}
+      {row.bandLow != null && row.bandHigh != null ? (
+        <p className="mt-1 text-white/55">
+          ±20% of previous {barNoun} · {formatValue(metric, row.bandLow)}–{formatValue(metric, row.bandHigh)}
+        </p>
+      ) : null}
+      {showLoad && row.change !== null ? <p className="mt-1 text-white/70">{row.change > 0 ? '+' : ''}{Math.round(row.change)}% vs previous {barNoun}</p> : null}
     </div>
+  )
+}
+
+type LoadRow = { label: string; bandLow: number | null; bandHigh: number | null }
+
+function LoadWindow({ rows }: { rows: LoadRow[] }) {
+  const xScale = useXAxisScale()
+  const yScale = useYAxisScale()
+  if (!xScale || !yScale) return null
+  return (
+    <g>
+      {rows.map((row, index) => {
+        if (row.bandLow == null || row.bandHigh == null) return null
+        const start = xScale(row.label, { position: 'start' })
+        const end = xScale(row.label, { position: 'end' })
+        const top = yScale(row.bandHigh)
+        const bottom = yScale(row.bandLow)
+        if (start == null || end == null || top == null || bottom == null) return null
+        const slot = end - start
+        const width = Math.min(52, slot * 0.62)
+        return <rect key={index} x={start + (slot - width) / 2} y={top} width={width} height={Math.max(0, bottom - top)} rx={3} fill="rgba(231,237,245,0.14)" />
+      })}
+    </g>
   )
 }
 
