@@ -1,6 +1,6 @@
 import L from 'leaflet'
 import { useEffect, useRef } from 'react'
-import { DEFAULT_ZONES, INTENSITY_COLOR, intensityOf, type ZoneEdges } from '../lib/intensity'
+import { DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityOf, type HrMethod, type ZoneEdges } from '../lib/intensity'
 import type { Activity } from '../types'
 
 export function ActivityMap({
@@ -8,12 +8,16 @@ export function ActivityMap({
   selectedId,
   maxHr,
   split = DEFAULT_ZONES,
+  restHr = DEFAULT_REST_HR,
+  method = 'max',
   onSelect,
 }: {
   activities: Activity[]
   selectedId: string | null
   maxHr: number
   split?: ZoneEdges
+  restHr?: number
+  method?: HrMethod
   onSelect: (id: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -56,7 +60,7 @@ export function ActivityMap({
     }
   }, [])
 
-  const signature = `${maxHr}|${split.join(',')}|${selectedId ?? ''}|${activities.map((activity) => activity.id).join(',')}`
+  const signature = `${maxHr}|${restHr}|${method}|${split.join(',')}|${selectedId ?? ''}|${activities.map((activity) => activity.id).join(',')}`
 
   useEffect(() => {
     const map = mapRef.current
@@ -67,7 +71,7 @@ export function ActivityMap({
     for (const activity of activities) {
       if (activity.track.length < 2) continue
       const selected = activity.id === selectedId
-      const level = intensityOf(activity, maxHr, split)
+      const level = intensityOf(activity, maxHr, split, { restHr, method })
       const line = L.polyline(activity.track, {
         color: selected ? '#f8fafc' : level ? INTENSITY_COLOR[level] : '#94a3b8',
         weight: selected ? 5 : 3,
@@ -90,7 +94,7 @@ export function ActivityMap({
     map.invalidateSize()
     fit()
     window.requestAnimationFrame(fit)
-  }, [signature, activities, selectedId, maxHr, split])
+  }, [signature, activities, selectedId, maxHr, split, restHr, method])
 
   const mapped = activities.filter((activity) => activity.track.length >= 2).length
 

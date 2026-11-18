@@ -24,15 +24,28 @@ export const INTENSITY_CELL: Record<Intensity, { bg: string; fg: string; bars: [
 const RANK: Record<Intensity, number> = { easy: 0, medium: 1, hard: 2 }
 
 export const DEFAULT_MAX_HR = 200
+export const DEFAULT_REST_HR = 60
 const MAX_HR_KEY = 'asphaltburner.hrMax'
+const REST_HR_KEY = 'asphaltburner.hrRest'
+const METHOD_KEY = 'asphaltburner.hrMethod'
 const ZONE_KEY = 'asphaltburner.zoneEdges'
 const MAX_HR_MIN = 100
 const MAX_HR_MAX = 230
+const REST_HR_MIN = 30
+const REST_HR_MAX = 100
 
 /** Upper bounds, in percent of max heart rate, for Z1, Z2, Z3 and Z4. Z5 is everything above the last. */
 export type ZoneEdges = readonly [number, number, number, number]
 
 export const DEFAULT_ZONES: ZoneEdges = [60, 70, 80, 90]
+
+/** `max` is a percent of max heart rate. `karvonen` is a percent of heart-rate reserve. */
+export type HrMethod = 'max' | 'karvonen'
+
+export type HrBasis = {
+  restHr: number
+  method: HrMethod
+}
 
 export function clampMaxHr(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_MAX_HR
@@ -57,6 +70,69 @@ export function saveMaxHr(value: number): number {
     /* the value still applies for this visit */
   }
   return next
+}
+
+export function clampRestHr(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_REST_HR
+  return Math.min(REST_HR_MAX, Math.max(REST_HR_MIN, Math.round(value)))
+}
+
+export function loadRestHr(): number {
+  try {
+    const raw = localStorage.getItem(REST_HR_KEY)
+    if (raw === null || raw.trim() === '') return DEFAULT_REST_HR
+    return clampRestHr(Number(raw))
+  } catch {
+    return DEFAULT_REST_HR
+  }
+}
+
+export function saveRestHr(value: number): number {
+  const next = clampRestHr(value)
+  try {
+    localStorage.setItem(REST_HR_KEY, String(next))
+  } catch {
+    /* the value still applies for this visit */
+  }
+  return next
+}
+
+/** Resting rate used for heart-rate reserve. Stays at least 30 bpm under max. */
+export function reserveRest(maxHr: number, restHr: number): number {
+  return Math.min(clampRestHr(restHr), maxHr - 30)
+}
+
+export function loadHrMethod(): HrMethod {
+  try {
+    return localStorage.getItem(METHOD_KEY) === 'karvonen' ? 'karvonen' : 'max'
+  } catch {
+    return 'max'
+  }
+}
+
+export function saveHrMethod(value: HrMethod): HrMethod {
+  const next: HrMethod = value === 'karvonen' ? 'karvonen' : 'max'
+  try {
+    localStorage.setItem(METHOD_KEY, next)
+  } catch {
+    /* the value still applies for this visit */
+  }
+  return next
+}
+
+function zoneRatio(hr: number, maxHr: number, basis?: HrBasis): number {
+  if (basis?.method !== 'karvonen') return (hr / maxHr) * 100
+  const rest = reserveRest(maxHr, basis.restHr)
+  return ((hr - rest) / (maxHr - rest)) * 100
+}
+
+/** Upper bpm of Z1–Z4 for the active method. */
+export function zoneCutBpm(maxHr: number, zones: ZoneEdges, basis?: HrBasis): number[] {
+  return zones.map((percent) => {
+    if (basis?.method !== 'karvonen') return (maxHr * percent) / 100
+    const rest = reserveRest(maxHr, basis.restHr)
+    return rest + ((maxHr - rest) * percent) / 100
+  })
 }
 
 export function clampZones(values: readonly number[]): ZoneEdges {
@@ -91,9 +167,9 @@ export function saveZones(values: readonly number[]): ZoneEdges {
   return next
 }
 
-/** Zone from the configured percent-of-max boundaries. */
-export function heartRateZone(hr: number, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES): number {
-  const ratio = (hr / maxHr) * 100
+/** Zone from the configured percents. Karvonen uses heart-rate reserve instead of max. */
+export function heartRateZone(hr: number, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, basis?: HrBasis): number {
+  const ratio = zoneRatio(hr, maxHr, basis)
   for (let index = 0; index < zones.length; index += 1) {
     if (ratio < zones[index]) return index + 1
   }
@@ -106,24 +182,24 @@ function intensityOfZone(zone: number): Intensity {
   return 'hard'
 }
 
-export function intensityFromHeartRate(hr: number, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES): Intensity | null {
+export function intensityFromHeartRate(hr: number, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES, basis?: HrBasis): Intensity | null {
   if (!maxHr || hr <= 0) return null
-  return intensityOfZone(heartRateZone(hr, maxHr, zones))
+  return intensityOfZone(heartRateZone(hr, maxHr, zones, basis))
 }
 
 /** Dominant band from the stream, otherwise the average heart rate. */
-export function intensityOf(activity: Activity, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES): Intensity | null {
+export function intensityOf(activity: Activity, maxHr: number | null, zones: ZoneEdges = DEFAULT_ZONES, basis?: HrBasis): Intensity | null {
   if (!maxHr) return null
   const samples = (activity.stream ?? []).map((point) => point.hr).filter((hr): hr is number => hr !== null && hr > 0)
   if (samples.length >= 8) {
     const counts: Record<Intensity, number> = { easy: 0, medium: 0, hard: 0 }
     for (const hr of samples) {
-      const level = intensityFromHeartRate(hr, maxHr, zones)
+      const level = intensityFromHeartRate(hr, maxHr, zones, basis)
       if (level) counts[level] += 1
     }
     return (['easy', 'medium', 'hard'] as const).reduce((best, level) => (counts[level] > counts[best] ? level : best))
   }
-  if (activity.avgHr && activity.avgHr > 0) return intensityFromHeartRate(activity.avgHr, maxHr, zones)
+  if (activity.avgHr && activity.avgHr > 0) return intensityFromHeartRate(activity.avgHr, maxHr, zones, basis)
   return null
 }
 
