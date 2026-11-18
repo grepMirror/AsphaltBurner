@@ -6,6 +6,7 @@ import { DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityFromHeartRate
 import { deriveSamples, distanceSplits, formatPace, median, smooth, type DistanceSplit } from '../lib/series'
 import type { Activity } from '../types'
 import { CURSOR, GRID, SERIES, TICK } from './chartChrome'
+import { ChartFrame } from './ChartFrame'
 import { Collapse } from './Collapse'
 
 type Axis = 'time' | 'distance'
@@ -233,7 +234,9 @@ function StreamLayer({
         <SeriesLabel color={color} title={title} detail={detail} />
         {extra ? <SeriesLabel color={extra.color} title={extra.title} detail={extra.detail} /> : null}
       </div>
-      <div className="rounded-md bg-black/25" style={{ height }}>
+      <ChartFrame label={title}>
+        {(full) => (
+      <div className="rounded-md bg-black/25" style={{ height: full ? '100%' : height }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={rows}
@@ -303,6 +306,8 @@ function StreamLayer({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+        )}
+      </ChartFrame>
     </div>
   )
 }
@@ -389,7 +394,9 @@ function SplitBars({ splits, maxHr, split, restHr, method }: { splits: DistanceS
   const max = Math.max(...paces)
   const pad = Math.max(6, (max - min) * 0.6)
   return (
-    <div className="mt-3 rounded-md bg-black/25" style={{ height: Math.max(168, splits.length * 32) }}>
+    <ChartFrame label="Pace by split">
+      {(full) => (
+    <div className={full ? 'h-full rounded-md bg-black/25' : 'mt-3 rounded-md bg-black/25'} style={full ? undefined : { height: Math.max(168, splits.length * 32) }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={splits} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 0 }} barCategoryGap="28%">
           <CartesianGrid horizontal={false} stroke={GRID} />
@@ -411,6 +418,8 @@ function SplitBars({ splits, maxHr, split, restHr, method }: { splits: DistanceS
         </BarChart>
       </ResponsiveContainer>
     </div>
+      )}
+    </ChartFrame>
   )
 }
 
