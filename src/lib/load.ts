@@ -1,5 +1,5 @@
 import type { Activity, DateWindow } from '../types'
-import { heartRateZone, intensityFromHeartRate, INTENSITY_COLOR, type ZoneEdges, DEFAULT_ZONES } from './intensity'
+import { heartRateZone, intensityFromHeartRate, INTENSITY_COLOR, type HrBasis, type ZoneEdges, DEFAULT_ZONES } from './intensity'
 import { formatDayInput, formatWindow, parseDay, startOfWeek, windowBounds } from './period'
 
 export type LoadRange = 'current' | '4w' | '8w' | '12w' | 'custom'
@@ -68,16 +68,16 @@ export function loadWindowLabel(range: LoadRange, custom: DateWindow | null, now
   return formatWindow({ start: formatDayInput(new Date(bounds.start)), end: formatDayInput(new Date(bounds.end)) })
 }
 
-function bandSlot(hr: number, maxHr: number, style: ZoneStyle, zones: ZoneEdges): number {
-  if (style === '5') return heartRateZone(hr, maxHr, zones) - 1
-  const level = intensityFromHeartRate(hr, maxHr, zones)
+function bandSlot(hr: number, maxHr: number, style: ZoneStyle, zones: ZoneEdges, basis?: HrBasis): number {
+  if (style === '5') return heartRateZone(hr, maxHr, zones, basis) - 1
+  const level = intensityFromHeartRate(hr, maxHr, zones, basis)
   if (level === 'medium') return 1
   if (level === 'hard') return 2
   return 0
 }
 
 /** Share of the session in each displayed band. A session with only an average heart rate counts entirely in that band. */
-export function zoneFractions(activity: Activity, maxHr: number, style: ZoneStyle = '5', zones: ZoneEdges = DEFAULT_ZONES): number[] | null {
+export function zoneFractions(activity: Activity, maxHr: number, style: ZoneStyle = '5', zones: ZoneEdges = DEFAULT_ZONES, basis?: HrBasis): number[] | null {
   const weights = style === '5' ? [0, 0, 0, 0, 0] : [0, 0, 0]
   const stream = activity.stream ?? []
   for (let index = 0; index < stream.length - 1; index += 1) {
@@ -87,13 +87,13 @@ export function zoneFractions(activity: Activity, maxHr: number, style: ZoneStyl
     if (span <= 0 || span > GAP_CAP_SEC) continue
     const hr = current.hr ?? next.hr
     if (hr === null || hr <= 0) continue
-    weights[bandSlot(hr, maxHr, style, zones)] += span
+    weights[bandSlot(hr, maxHr, style, zones, basis)] += span
   }
   const total = weights.reduce((sum, value) => sum + value, 0)
   if (total > 0) return weights.map((value) => value / total)
   if (activity.avgHr && activity.avgHr > 0) {
     const only = weights.map(() => 0)
-    only[bandSlot(activity.avgHr, maxHr, style, zones)] = 1
+    only[bandSlot(activity.avgHr, maxHr, style, zones, basis)] = 1
     return only
   }
   return null
@@ -105,7 +105,7 @@ function metricAmount(activity: Activity, metric: LoadMetric): number {
   return activity.distanceM / 1000
 }
 
-export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom: DateWindow | null, metric: LoadMetric, style: ZoneStyle, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, now = new Date()): LoadWeek[] {
+export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom: DateWindow | null, metric: LoadMetric, style: ZoneStyle, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, now = new Date(), basis?: HrBasis): LoadWeek[] {
   const bounds = loadBounds(range, custom, now)
   const byDay = range === 'current'
   const bands = ZONE_BANDS[style]
@@ -127,7 +127,7 @@ export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom:
     for (const activity of activities) {
       const time = new Date(activity.date).getTime()
       if (Number.isNaN(time) || time < start.getTime() || time >= next.getTime() || time < bounds.start || time > bounds.end) continue
-      const fractions = zoneFractions(activity, maxHr, style, zones)
+      const fractions = zoneFractions(activity, maxHr, style, zones, basis)
       if (!fractions) continue
       const amount = metricAmount(activity, metric)
       fractions.forEach((fraction, zone) => {
@@ -154,14 +154,14 @@ export function buildLoadWeeks(activities: Activity[], range: LoadRange, custom:
   return weeks
 }
 
-export function periodZoneShares(activities: Activity[], range: LoadRange, custom: DateWindow | null, style: ZoneStyle, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, now = new Date()): ZoneShare[] {
+export function periodZoneShares(activities: Activity[], range: LoadRange, custom: DateWindow | null, style: ZoneStyle, maxHr: number, zones: ZoneEdges = DEFAULT_ZONES, now = new Date(), basis?: HrBasis): ZoneShare[] {
   const bounds = loadBounds(range, custom, now)
   const bands = ZONE_BANDS[style]
   const seconds = bands.map(() => 0)
   for (const activity of activities) {
     const time = new Date(activity.date).getTime()
     if (Number.isNaN(time) || time < bounds.start || time > bounds.end) continue
-    const fractions = zoneFractions(activity, maxHr, style, zones)
+    const fractions = zoneFractions(activity, maxHr, style, zones, basis)
     if (!fractions) continue
     fractions.forEach((fraction, zone) => {
       if (seconds[zone] !== undefined) seconds[zone] += activity.movingSec * fraction

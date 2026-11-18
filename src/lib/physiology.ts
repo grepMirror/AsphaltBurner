@@ -1,6 +1,6 @@
 import type { Activity, StreamPoint } from '../types'
 import { ZONE_BANDS, type ZoneStyle } from './load'
-import { DEFAULT_ZONES, reserveRest, type ZoneEdges } from './intensity'
+import { DEFAULT_ZONES, zoneCutBpm, type HrMethod, type ZoneEdges } from './intensity'
 
 const BIN_KMH = 0.25
 const GAP_CAP_SEC = 180
@@ -9,11 +9,17 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Seconds in a speed bin before the band is drawn. Less than this stays a faded line. */
 export const PACE_SOLID_SEC = 60
+/** Current period needs this many kept points or the pace is left off the chart. */
+const MIN_BIN_SAMPLES = 20
+/** Both periods need this many different runs or the pace is left off the chart. */
+const MIN_BIN_RUNS = 3
+/** One run counts for at most this share of the time in a bin. */
+const MAX_RUN_SHARE = 0.25
 /** Slower than 8:00/km stays off the default axis. 8:00/km is 7.5 km/h. */
 export const PACE_FLOOR_KMH = 7.5
 
-export type PaceSpan = '30d' | '90d' | '1y'
-export type PaceCompare = 'previous' | 'year'
+export type PaceSpan = '90d' | '1y'
+export type PaceCompare = 'previous' | 'year' | 'custom'
 
 export type PacePoint = {
   speed: number
@@ -24,6 +30,8 @@ export type PacePoint = {
   n: number
   /** Kept stream points in this bin. */
   samples: number
+  /** Different runs that contributed to this bin. */
+  runs: number
 }
 
 export type PaceCost = {
@@ -79,6 +87,28 @@ function validHr(hr: number | null): hr is number {
   return hr !== null && hr >= 40 && hr <= 230
 }
 
+function capRunShare(samples: { hr: number; w: number; run: string }[]): { hr: number; w: number }[] {
+  const next = samples.map((sample) => ({ ...sample }))
+  for (let pass = 0; pass < 8; pass += 1) {
+    const totals = new Map<string, number>()
+    let total = 0
+    for (const sample of next) {
+      totals.set(sample.run, (totals.get(sample.run) ?? 0) + sample.w)
+      total += sample.w
+    }
+    const limit = total * MAX_RUN_SHARE
+    let scaled = false
+    for (const [run, weight] of totals) {
+      if (weight <= limit) continue
+      const factor = limit / weight
+      for (const sample of next) if (sample.run === run) sample.w *= factor
+      scaled = true
+    }
+    if (!scaled) break
+  }
+  return next
+}
+
 function weightedQuantile(samples: { hr: number; w: number }[], q: number): number {
   const sorted = samples.slice().sort((a, b) => a.hr - b.hr)
   let total = 0
@@ -94,7 +124,7 @@ function weightedQuantile(samples: { hr: number; w: number }[], q: number): numb
 
 /** Pace against heart rate. Each kept sample stands for the seconds until the next one, so a long run outweighs a short one. */
 export function buildPaceCost(activities: Activity[]): PaceCost {
-  const groups = new Map<number, { hr: number; w: number }[]>()
+  const groups = new Map<number, { hr: number; w: number; run: string }[]>()
   let seconds = 0
   for (const activity of runsOf(activities)) {
     const stream = activity.stream ?? []
@@ -107,7 +137,7 @@ export function buildPaceCost(activities: Activity[]): PaceCost {
       const kmh = runningSpeed(speed)
       if (kmh === null) continue
       const bin = Math.round(kmh / BIN_KMH)
-      const sample = { hr, w: span }
+      const sample = { hr, w: span, run: activity.id }
       const list = groups.get(bin)
       if (list) list.push(sample)
       else groups.set(bin, [sample])
@@ -118,13 +148,16 @@ export function buildPaceCost(activities: Activity[]): PaceCost {
     .sort((a, b) => a[0] - b[0])
     .map(([bin, list]) => {
       const weight = list.reduce((sum, sample) => sum + sample.w, 0)
+      const capped = capRunShare(list)
+      const runs = new Set(list.map((sample) => sample.run)).size
       return {
         speed: bin * BIN_KMH,
-        p25: weightedQuantile(list, 0.25),
-        median: weightedQuantile(list, 0.5),
-        p75: weightedQuantile(list, 0.75),
+        p25: weightedQuantile(capped, 0.25),
+        median: weightedQuantile(capped, 0.5),
+        p75: weightedQuantile(capped, 0.75),
         n: weight,
         samples: list.length,
+        runs,
       }
     })
 
@@ -134,7 +167,7 @@ export function buildPaceCost(activities: Activity[]): PaceCost {
     const first = Math.round(occupied[0].speed / BIN_KMH)
     const last = Math.round(occupied[occupied.length - 1].speed / BIN_KMH)
     for (let bin = first; bin <= last; bin += 1) {
-      points.push(byBin.get(bin) ?? { speed: bin * BIN_KMH, p25: null, p75: null, median: null, n: 0, samples: 0 })
+      points.push(byBin.get(bin) ?? { speed: bin * BIN_KMH, p25: null, p75: null, median: null, n: 0, samples: 0, runs: 0 })
     }
   }
 
@@ -142,12 +175,21 @@ export function buildPaceCost(activities: Activity[]): PaceCost {
   return { retained: seconds, used: seconds, bands: solid.length, slope: medianSlope(solid), points }
 }
 
-export function paceWindows(span: PaceSpan, compare: PaceCompare, now: number) {
-  const days = span === '30d' ? 30 : span === '90d' ? 90 : 365
-  const length = days * DAY_MS
+export function paceWindows(span: PaceSpan, compare: PaceCompare, now: number, year?: number) {
+  const length = (span === '90d' ? 90 : 365) * DAY_MS
   const start = now - length
-  const compareEnd = compare === 'previous' ? start : now - 365 * DAY_MS
-  return { start, end: now, compareStart: compareEnd - length, compareEnd }
+  if (compare !== 'custom') {
+    const compareEnd = compare === 'previous' ? start : now - 365 * DAY_MS
+    return { start, end: now, compareStart: compareEnd - length, compareEnd }
+  }
+  const endDate = new Date(now)
+  const startDate = new Date(start)
+  const chosen = year ?? endDate.getFullYear() - 1
+  const compareEndDate = new Date(endDate)
+  compareEndDate.setFullYear(chosen)
+  const compareStartDate = new Date(startDate)
+  compareStartDate.setFullYear(chosen - (endDate.getFullYear() - startDate.getFullYear()))
+  return { start, end: now, compareStart: compareStartDate.getTime(), compareEnd: compareEndDate.getTime() }
 }
 
 export type PaceRow = {
@@ -163,35 +205,52 @@ export type PaceRow = {
   beforeSamples: number
 }
 
-/** Current period keeps the band. The other period is only a median. Slower than 8:00/km and the thin fast tail drop out unless allSpeeds. */
+function comparable(now: PacePoint | undefined, was: PacePoint | undefined): boolean {
+  if (!now || !was || now.median == null || was.median == null) return false
+  if (now.samples < MIN_BIN_SAMPLES) return false
+  return now.runs >= MIN_BIN_RUNS && was.runs >= MIN_BIN_RUNS
+}
+
+/** Current period keeps the band. The other period is only a median. A pace needs 20 samples now and 3 runs on both sides. */
 export function paceRows(current: PacePoint[], prior: PacePoint[], allSpeeds: boolean): PaceRow[] {
   const nowBySpeed = new Map(current.map((point) => [point.speed, point]))
   const priorBySpeed = new Map(prior.map((point) => [point.speed, point]))
   const speeds = [...new Set<number>([...nowBySpeed.keys(), ...priorBySpeed.keys()])].sort((a, b) => a - b)
   let cap = Infinity
   if (!allSpeeds) {
-    const solid = current.filter((point) => point.speed >= PACE_FLOOR_KMH && point.n >= PACE_SOLID_SEC)
+    const solid = current.filter((point) => point.speed >= PACE_FLOOR_KMH && point.n >= PACE_SOLID_SEC && point.samples >= MIN_BIN_SAMPLES && point.runs >= MIN_BIN_RUNS)
     cap = solid.length ? solid[solid.length - 1].speed : Infinity
   }
-  const rows: PaceRow[] = []
+  const kept: PaceRow[] = []
   for (const speed of speeds) {
     if (!allSpeeds && (speed < PACE_FLOOR_KMH || speed > cap)) continue
     const now = nowBySpeed.get(speed)
     const was = priorBySpeed.get(speed)
-    const nowSolid = (now?.n ?? 0) >= PACE_SOLID_SEC && now?.median != null
-    const wasSolid = (was?.n ?? 0) >= PACE_SOLID_SEC && was?.median != null
-    rows.push({
+    if (!comparable(now, was)) continue
+    const nowSolid = now!.n >= PACE_SOLID_SEC
+    const wasSolid = was!.n >= PACE_SOLID_SEC
+    kept.push({
       speed,
       p25: nowSolid ? now!.p25 : null,
       iqr: nowSolid && now!.p25 != null && now!.p75 != null ? now!.p75 - now!.p25 : null,
       median: nowSolid ? now!.median : null,
-      medianThin: !nowSolid && now && now.n > 0 ? now.median : null,
+      medianThin: nowSolid ? null : now!.median,
       before: wasSolid ? was!.median : null,
-      beforeThin: !wasSolid && was && was.n > 0 ? was.median : null,
-      n: now?.n ?? 0,
-      samples: now?.samples ?? 0,
-      beforeSamples: was?.samples ?? 0,
+      beforeThin: wasSolid ? null : was!.median,
+      n: now!.n,
+      samples: now!.samples,
+      beforeSamples: was!.samples,
     })
+  }
+  if (kept.length === 0) return []
+  const lo = kept[0].speed
+  const hi = kept[kept.length - 1].speed
+  const bySpeed = new Map(kept.map((row) => [row.speed, row]))
+  const rows: PaceRow[] = []
+  for (const speed of speeds) {
+    if (speed < lo || speed > hi) continue
+    if (!allSpeeds && (speed < PACE_FLOOR_KMH || speed > cap)) continue
+    rows.push(bySpeed.get(speed) ?? { speed, p25: null, iqr: null, median: null, medianThin: null, before: null, beforeThin: null, n: 0, samples: 0, beforeSamples: 0 })
   }
   return rows
 }
@@ -237,10 +296,8 @@ export function buildHrBins(activities: Activity[]): HrBin[] {
   return bins
 }
 
-export function reserveCuts(maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES): number[] {
-  const rest = reserveRest(maxHr, restHr)
-  const span = maxHr - rest
-  return zones.map((percent) => rest + (span * percent) / 100)
+export function reserveCuts(maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = 'max'): number[] {
+  return zoneCutBpm(maxHr, zones, { restHr, method })
 }
 
 export function reserveZone(hr: number, cuts: number[]): number {
@@ -257,8 +314,8 @@ export function styleKey(zone: number, style: ZoneStyle): string {
   return 'hard'
 }
 
-export function zoneSlices(bins: HrBin[], style: ZoneStyle, maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES): ZoneSlice[] {
-  const cuts = reserveCuts(maxHr, restHr, zones)
+export function zoneSlices(bins: HrBin[], style: ZoneStyle, maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = 'max'): ZoneSlice[] {
+  const cuts = reserveCuts(maxHr, restHr, zones, method)
   const bands = ZONE_BANDS[style]
   const seconds = bands.map(() => 0)
   for (const bin of bins) {
@@ -317,6 +374,26 @@ if (entry?.endsWith('physiology.ts')) {
   if (!weightedPoint || weightedPoint.median !== 140 || weightedPoint.n !== 10 || weightedPoint.samples !== 2) {
     throw new Error(`weight ${weightedPoint?.median} ${weightedPoint?.n} ${weightedPoint?.samples}`)
   }
+  const held = (id: string, hr: number, seconds: number): Activity => {
+    const points: { t: number; hr: number; speed: number }[] = []
+    let cursor = 0
+    let left = seconds
+    while (left > 0) {
+      points.push({ t: cursor, hr, speed: 3 })
+      const step = Math.min(60, left)
+      cursor += step
+      left -= step
+    }
+    points.push({ t: cursor, hr, speed: 3 })
+    const activity = run('run', points)
+    activity.id = id
+    return activity
+  }
+  const capped = buildPaceCost([held('race', 185, 364), held('a', 154, 120), held('b', 155, 211), held('c', 157, 61)])
+  const cappedPoint = capped.points.find((point) => point.samples > 0)
+  if (!cappedPoint || cappedPoint.median !== 155 || cappedPoint.runs !== 4 || cappedPoint.n !== 756) {
+    throw new Error(`cap ${cappedPoint?.median} ${cappedPoint?.runs} ${cappedPoint?.n}`)
+  }
   const bins = buildHrBins([
     run('run', [
       { t: 0, hr: 140, speed: 3 },
@@ -329,30 +406,49 @@ if (entry?.endsWith('physiology.ts')) {
   ])
   const at = (hr: number) => bins.find((bin) => bin.hr === hr)?.seconds ?? 0
   if (at(140) !== 20 || at(160) !== 10) throw new Error(`bins 140=${at(140)} 160=${at(160)}`)
-  const five = zoneSlices(bins, '5', 200, 60)
-  const three = zoneSlices(bins, '3', 200, 60)
+  const five = zoneSlices(bins, '5', 200, 60, DEFAULT_ZONES, 'karvonen')
+  const three = zoneSlices(bins, '3', 200, 60, DEFAULT_ZONES, 'karvonen')
   const slice = (rows: ZoneSlice[], key: string) => rows.find((row) => row.key === key)?.seconds ?? -1
   if (slice(five, 'z1') !== 20 || slice(five, 'z3') !== 10 || slice(three, 'easy') !== 20 || slice(three, 'medium') !== 10) {
     throw new Error(`zones ${five.map((row) => row.seconds).join()} / ${three.map((row) => row.seconds).join()}`)
   }
+  const plain = zoneSlices(bins, '5', 200, 60)
+  if (slice(plain, 'z3') !== 20 || slice(plain, 'z4') !== 10) throw new Error(`max zones ${plain.map((row) => row.seconds).join()}`)
   const now = 1_700_000_000_000
   const windows = paceWindows('90d', 'previous', now)
   if (windows.end - windows.start !== 90 * DAY_MS || windows.compareEnd !== windows.start) throw new Error('previous window')
-  const year = paceWindows('30d', 'year', now)
-  if (year.end - year.start !== 30 * DAY_MS || year.compareEnd !== now - 365 * DAY_MS) throw new Error('year window')
-  const sample = [
-    { speed: 5.5, p25: 100, p75: 120, median: 110, n: 120, samples: 4 },
-    { speed: 7.25, p25: 120, p75: 130, median: 125, n: 120, samples: 4 },
-    { speed: 8, p25: 130, p75: 150, median: 140, n: 120, samples: 9 },
-    { speed: 18, p25: 180, p75: 190, median: 185, n: 10, samples: 1 },
-  ]
-  const clipped = paceRows(sample, [{ speed: 8, p25: 140, p75: 160, median: 150, n: 120, samples: 6 }], false)
-  if (clipped.length !== 1 || clipped[0].median !== 140 || clipped[0].before !== 150 || clipped[0].iqr !== 20 || clipped[0].samples !== 9 || clipped[0].beforeSamples !== 6 || clipped.some((row) => row.speed < 7.5)) {
+  const year = paceWindows('90d', 'year', now)
+  if (year.end - year.start !== 90 * DAY_MS || year.compareEnd !== now - 365 * DAY_MS) throw new Error('year window')
+  const stamp = new Date(2026, 10, 18, 12).getTime()
+  const custom = paceWindows('90d', 'custom', stamp, 2023)
+  const customEnd = new Date(custom.compareEnd)
+  const customStart = new Date(custom.compareStart)
+  const shifted = new Date(stamp - 90 * DAY_MS)
+  const long = paceWindows('1y', 'custom', stamp, 2022)
+  const longShifted = new Date(stamp - 365 * DAY_MS)
+  if (
+    customEnd.getFullYear() !== 2023 || customEnd.getMonth() !== 10 || customEnd.getDate() !== 18 ||
+    customStart.getFullYear() !== 2023 || customStart.getMonth() !== shifted.getMonth() || customStart.getDate() !== shifted.getDate() ||
+    new Date(long.compareEnd).getFullYear() !== 2022 ||
+    new Date(long.compareStart).getFullYear() !== 2022 - (2026 - longShifted.getFullYear())
+  ) {
+    throw new Error('custom year')
+  }
+  const point = (speed: number, median: number, samples: number, runs: number, n = 120): PacePoint => ({
+    speed,
+    p25: median - 10,
+    p75: median + 10,
+    median,
+    n,
+    samples,
+    runs,
+  })
+  const sample = [point(5.5, 110, 30, 4), point(7.25, 125, 10, 4), point(8, 140, 30, 4), point(9, 150, 30, 2), point(18, 185, 5, 4, 10)]
+  const prior = [point(5.5, 112, 30, 4), point(8, 150, 30, 4), point(9, 160, 30, 1), point(18, 190, 30, 4, 10)]
+  const clipped = paceRows(sample, prior, false)
+  if (clipped.length !== 1 || clipped[0].speed !== 8 || clipped[0].median !== 140 || clipped[0].before !== 150 || clipped[0].samples !== 30) {
     throw new Error(`clipped ${JSON.stringify(clipped)}`)
   }
-  const open = paceRows(sample, [], true)
-  const thin = open.find((row) => row.speed === 18)
-  if (!thin || thin.median !== null || thin.medianThin !== 185 || open.find((row) => row.speed === 5.5)?.median !== 110) {
-    throw new Error('thin or floor')
-  }
+  const open = paceRows(sample, prior, true).filter((row) => row.median != null).map((row) => row.speed)
+  if (open.join() !== '5.5,8') throw new Error(`open ${open.join()}`)
 }
