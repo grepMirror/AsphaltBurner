@@ -3,12 +3,12 @@ import { MonthCalendar } from '../components/MonthCalendar'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
 import { useActivities } from '../lib/activities'
-import type { ZoneEdges } from '../lib/intensity'
+import type { HrMethod, ZoneEdges } from '../lib/intensity'
 import { buildMonthCalendar, monthOfLatest, type DayCell } from '../lib/calendar'
 import { SPORT_LABEL, formatDistance, formatDuration, formatPaceOrSpeed } from '../lib/format'
 import type { Sport } from '../types'
 
-export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+export function CalendarPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
   const { ready, activities } = useActivities()
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
@@ -27,7 +27,7 @@ export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges
   }, [activities])
 
   const visible = useMemo(() => activities.filter((activity) => sports.has(activity.sport)), [activities, sports])
-  const model = useMemo(() => buildMonthCalendar(visible, cursor.year, cursor.month, maxHr, new Date(), split), [visible, cursor.year, cursor.month, maxHr, split])
+  const model = useMemo(() => buildMonthCalendar(visible, cursor.year, cursor.month, maxHr, new Date(), split, { restHr, method }), [visible, cursor.year, cursor.month, maxHr, split, restHr, method])
   const selectedDay = model.weeks.flatMap((week) => week.days).find((day) => day.key === selectedKey) ?? null
   const detail = activities.find((activity) => activity.id === detailId) ?? null
 
@@ -61,7 +61,7 @@ export function CalendarPage({ maxHr, split }: { maxHr: number; split: ZoneEdges
     return (
       <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 py-5 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-[1280px]">
-          <SessionView activity={detail} maxHr={maxHr} split={split} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
+          <SessionView activity={detail} maxHr={maxHr} split={split} restHr={restHr} method={method} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
         </div>
       </div>
     )
