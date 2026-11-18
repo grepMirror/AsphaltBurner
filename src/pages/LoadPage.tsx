@@ -16,7 +16,7 @@ import {
   type ZoneStyle,
 } from '../lib/load'
 import { useActivities } from '../lib/activities'
-import type { ZoneEdges } from '../lib/intensity'
+import type { HrMethod, ZoneEdges } from '../lib/intensity'
 import type { DateWindow } from '../types'
 
 const RANGES: { id: LoadRange; label: string }[] = [
@@ -33,7 +33,7 @@ const METRICS: { id: LoadMetric; label: string; unit: string }[] = [
   { id: 'elevation', label: 'd+', unit: 'm' },
 ]
 
-export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
   const { ready, activities } = useActivities()
   const [range, setRange] = useState<LoadRange>('8w')
   const [custom, setCustom] = useState<DateWindow | null>(null)
@@ -45,8 +45,9 @@ export function LoadPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) 
   const [showLoad, setShowLoad] = useState(false)
 
   const windowLabel = loadWindowLabel(range, custom)
-  const weeks = useMemo(() => buildLoadWeeks(activities, range, custom, metric, style, maxHr, split), [activities, range, custom, metric, style, maxHr, split])
-  const shares = useMemo(() => periodZoneShares(activities, range, custom, polarStyle, maxHr, split), [activities, range, custom, polarStyle, maxHr, split])
+  const basis = useMemo(() => ({ restHr, method }), [restHr, method])
+  const weeks = useMemo(() => buildLoadWeeks(activities, range, custom, metric, style, maxHr, split, new Date(), basis), [activities, range, custom, metric, style, maxHr, split, basis])
+  const shares = useMemo(() => periodZoneShares(activities, range, custom, polarStyle, maxHr, split, new Date(), basis), [activities, range, custom, polarStyle, maxHr, split, basis])
   const rows = weeks.map((week, index) => {
     const previous = index > 0 ? weeks[index - 1].total : 0
     return {

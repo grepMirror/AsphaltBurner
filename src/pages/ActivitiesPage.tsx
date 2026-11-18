@@ -5,12 +5,12 @@ import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
 import { VolumeChart } from '../components/VolumeChart'
 import { useActivities } from '../lib/activities'
-import type { ZoneEdges } from '../lib/intensity'
+import type { HrMethod, ZoneEdges } from '../lib/intensity'
 import { SPORTS, SPORT_LABEL, formatDistance, formatDuration, formatPaceOrSpeed, formatWhen } from '../lib/format'
 import { formatWindow, inPeriod, weekWindow, windowBounds } from '../lib/period'
 import type { Activity, DateWindow, MetricId, RangeId, Sport } from '../types'
 
-export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdges }) {
+export function ActivitiesPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
   const { ready, activities, report, clear } = useActivities()
   const [sports, setSports] = useState<Set<Sport>>(() => new Set(SPORTS))
   const [range, setRange] = useState<RangeId>('12m')
@@ -74,7 +74,7 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
   }
 
   if (detail) {
-    return <SessionView activity={detail} maxHr={maxHr} split={split} onBack={() => setDetailId(null)} />
+    return <SessionView activity={detail} maxHr={maxHr} split={split} restHr={restHr} method={method} onBack={() => setDetailId(null)} />
   }
 
   return (
@@ -192,7 +192,7 @@ export function ActivitiesPage({ maxHr, split }: { maxHr: number; split: ZoneEdg
               </Collapse>
             </section>
             <div className="order-1 flex flex-col gap-4 lg:order-2">
-              <ActivityMap activities={visible} maxHr={maxHr} split={split} selectedId={selected?.id ?? null} onSelect={selectActivity} />
+              <ActivityMap activities={visible} maxHr={maxHr} split={split} restHr={restHr} method={method} selectedId={selected?.id ?? null} onSelect={selectActivity} />
               {selected ? (
                 <Collapse label={selected.name} open={sessionOpen} onOpenChange={setSessionOpen} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 lg:order-last lg:border-0 lg:bg-transparent lg:px-0">
                   <ActivityDetail activity={selected} peers={sportFiltered} onOpen={() => setDetailId(selected.id)} />
