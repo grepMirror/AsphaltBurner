@@ -46,18 +46,17 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3.5">
+      <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-3">
         {model.tiles.map((tile) => (
-          <div key={tile.label} className="flex min-w-0 flex-col gap-1 rounded-xl border border-[#1E2330] bg-[#12161E] px-3.5 py-3 sm:min-w-[220px] sm:flex-1 sm:gap-2 sm:rounded-2xl sm:px-5 sm:py-[18px]">
-            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-[#9AA3B5] sm:text-xs">{tile.label}</span>
-            <div className="flex items-baseline gap-1.5">
-              <span className="cal-num text-2xl font-semibold leading-none tracking-tight tabular-nums sm:text-[34px]">{tile.value}</span>
-              {tile.unit ? <span className="text-sm font-medium text-[#9AA3B5]">{tile.unit}</span> : null}
-            </div>
-            <span className="truncate text-[11px] text-[#9AA3B5] sm:text-[13px]">{tile.sub}</span>
+          <div key={tile.label} className="flex flex-col">
+            <dt className="text-[10px] uppercase tracking-[0.12em] text-[#9AA3B5]">{tile.label}</dt>
+            <dd className="cal-num text-base font-semibold tabular-nums">
+              {tile.value}
+              {tile.unit ? ` ${tile.unit}` : ''}
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
 
       <div className={`cal-board cal-pad flex flex-col gap-3 rounded-[22px] border border-[#1E2330] bg-[#10131A] p-[22px] sm:gap-[18px] ${showTotals ? '' : 'is-totals-hidden'}`}>
         <div className="flex flex-wrap items-center justify-between gap-x-3">

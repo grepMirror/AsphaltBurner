@@ -79,7 +79,7 @@ function formatHm(seconds: number): string {
   return `${hours}h${String(minutes % 60).padStart(2, '0')}`
 }
 
-function isoWeekNumber(monday: Date): number {
+export function isoWeekNumber(monday: Date): number {
   const thursday = new Date(monday)
   thursday.setDate(monday.getDate() + 3)
   const jan4 = new Date(thursday.getFullYear(), 0, 4)
@@ -87,7 +87,7 @@ function isoWeekNumber(monday: Date): number {
   return 1 + Math.round((monday.getTime() - weekOne.getTime()) / (7 * 24 * 60 * 60 * 1000))
 }
 
-function rangeLabel(start: Date, end: Date): string {
+export function rangeLabel(start: Date, end: Date): string {
   if (start.getMonth() === end.getMonth()) {
     return `${start.getDate()} – ${end.getDate()} ${MONTHS_SHORT[end.getMonth()]}`
   }
