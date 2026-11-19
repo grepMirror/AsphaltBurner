@@ -13,8 +13,8 @@ type PagePath = '/' | '/load' | '/activities' | '/profile' | '/planner'
 const PAGES: { href: PagePath; label: string }[] = [
   { href: '/', label: 'Calendar' },
   { href: '/load', label: 'Load' },
-  { href: '/profile', label: 'Profile' },
   { href: '/planner', label: 'Planner' },
+  { href: '/profile', label: 'Profile' },
   { href: '/activities', label: 'Activities' },
 ]
 

@@ -1,20 +1,15 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
-/** True when the chart is rotated 90° clockwise to read as landscape on a portrait phone. */
-export const ChartRotated = createContext(false)
-
-export function useChartRotated(): boolean {
-  return useContext(ChartRotated)
-}
-
-/**
- * Local x inside a chart box. A 90° clockwise rotation maps the chart's x axis onto the screen's vertical axis.
- * lx = width/2 − (clientY − visualCenterY).
- */
-export function chartLocalX(el: HTMLElement, clientX: number, clientY: number, rotated: boolean): number {
-  if (!rotated) return clientX - el.getBoundingClientRect().left
-  const rect = el.getBoundingClientRect()
-  return el.offsetWidth / 2 - (clientY - (rect.top + rect.height / 2))
+/** Pointer position in the chart SVG's own pixels, including a CSS rotation on an ancestor. */
+export function svgLocalPoint(el: HTMLElement, clientX: number, clientY: number): { x: number; y: number } | null {
+  const svg = el.querySelector('svg')
+  const ctm = svg?.getScreenCTM()
+  if (!svg || !ctm) return null
+  const point = svg.createSVGPoint()
+  point.x = clientX
+  point.y = clientY
+  const local = point.matrixTransform(ctm.inverse())
+  return { x: local.x, y: local.y }
 }
 
 /** On phones, a button opens the chart fullscreen, rotated to landscape while the phone stays portrait. */
@@ -90,13 +85,79 @@ function ChartStage({ label, onClose, children }: { label: string; onClose: () =
         Close
       </button>
       {portrait && box.w > 0 ? (
-        <ChartRotated.Provider value={true}>
-          <div className="absolute left-1/2 top-1/2 p-2" style={{ width: box.h, height: box.w, transform: 'translate(-50%, -50%) rotate(90deg)' }}>
-            {body}
-          </div>
-        </ChartRotated.Provider>
+        <RotatedChart width={box.h} height={box.w}>
+          {body}
+        </RotatedChart>
       ) : null}
       {!portrait ? <div className="h-full px-3 pb-3 pt-14">{body}</div> : null}
+    </div>
+  )
+}
+
+/**
+ * Recharts maps a finger with getBoundingClientRect, which ignores rotate(90deg).
+ * While a touch is on the chart, report a rect that puts that finger on the chart's own x axis.
+ * ponytail: one rect, first finger only. Pinch uses real screen points.
+ */
+function RotatedChart({ width, height, children }: { width: number; height: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const root = ref.current
+    if (!root) return
+    let mapping: { wrap: HTMLElement; left: number; top: number; width: number; height: number } | null = null
+    const original = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (mapping && this === mapping.wrap) return new DOMRect(mapping.left, mapping.top, mapping.width, mapping.height)
+      const rect = original.call(this)
+      if (!root.contains(this)) return rect
+      const layoutWidth = this.offsetWidth
+      const layoutHeight = this.offsetHeight
+      if (layoutWidth <= 0 || layoutHeight <= 0) return rect
+      if (Math.abs(rect.width - layoutWidth) < 1 && Math.abs(rect.height - layoutHeight) < 1) return rect
+      return new DOMRect(rect.left, rect.top, layoutWidth, layoutHeight)
+    }
+    const arm = (event: Event) => {
+      mapping = null
+      const point = event instanceof TouchEvent ? event.touches[0] : event instanceof MouseEvent ? event : null
+      if (!point) return
+      const hit = event.target
+      if (!(hit instanceof Element)) return
+      const wrap = hit.closest('.recharts-wrapper')
+      if (!(wrap instanceof HTMLElement)) return
+      const svg = wrap.querySelector('svg')
+      const ctm = svg?.getScreenCTM()
+      if (!svg || !ctm) return
+      const local = svg.createSVGPoint()
+      local.x = point.clientX
+      local.y = point.clientY
+      const mapped = local.matrixTransform(ctm.inverse())
+      mapping = {
+        wrap,
+        left: point.clientX - mapped.x,
+        top: point.clientY - mapped.y,
+        width: wrap.offsetWidth,
+        height: wrap.offsetHeight,
+      }
+    }
+    const disarm = () => {
+      mapping = null
+    }
+    const types = ['touchstart', 'touchmove', 'touchend', 'mousedown', 'mousemove', 'mouseup'] as const
+    for (const type of types) {
+      root.addEventListener(type, arm, true)
+      window.addEventListener(type, disarm, { passive: true })
+    }
+    return () => {
+      HTMLElement.prototype.getBoundingClientRect = original
+      for (const type of types) {
+        root.removeEventListener(type, arm, true)
+        window.removeEventListener(type, disarm)
+      }
+    }
+  }, [width, height])
+  return (
+    <div ref={ref} className="absolute left-1/2 top-1/2 p-2" style={{ width, height, transform: 'translate(-50%, -50%) rotate(90deg)' }}>
+      {children}
     </div>
   )
 }
