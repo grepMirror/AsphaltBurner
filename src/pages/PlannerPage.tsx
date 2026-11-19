@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { CheckIcon, SessionEditor, SessionViewer, TAG_COLOR, WorkoutStrip } from '../components/PlanSession'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -25,7 +25,7 @@ import {
   type PlannedSession,
   type WeekFacts,
 } from '../lib/plan'
-import { formatDayInput, parseDay } from '../lib/period'
+import { formatDayInput, parseDay, startOfWeek } from '../lib/period'
 import type { Activity } from '../types'
 
 type Pane = 'week' | 'stats'
@@ -38,8 +38,22 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const [pane, setPane] = useState<Pane>('week')
   const [plan, setPlan] = useState(loadPlan)
   const [week, setWeek] = useState(() => weekOf(new Date()))
+  const [shown, setShown] = useState(() => {
+    const monday = parseDay(weekOf(new Date()))
+    return { year: monday.getFullYear(), month: monday.getMonth() }
+  })
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!calendarOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCalendarOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [calendarOpen])
 
   const pace = useMemo(() => {
     if (!ready) return null
@@ -57,6 +71,16 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
 
   const commit = (next: PlannedSession[]) => setPlan(savePlan(next))
   const upsert = (session: PlannedSession) => commit(plan.some((item) => item.id === session.id) ? plan.map((item) => (item.id === session.id ? session : item)) : [...plan, session])
+  const goWeek = (next: string, follow = true) => {
+    setWeek(next)
+    if (!follow) return
+    const monday = parseDay(next)
+    setShown({ year: monday.getFullYear(), month: monday.getMonth() })
+  }
+  const shiftMonth = (delta: number) => {
+    const date = new Date(shown.year, shown.month + delta, 1)
+    setShown({ year: date.getFullYear(), month: date.getMonth() })
+  }
 
   if (!ready) return <p className="calendar-page px-10 py-10 text-sm text-[#9AA3B5]">Loading saved sessions…</p>
 
@@ -118,15 +142,24 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const free = weekRuns(activities, week).filter((run) => !linked.has(run.id))
   const facts = weekFacts(plan, week, kmh, climb, activities)
 
+  const pickWeek = (next: string) => {
+    goWeek(next, false)
+    setCalendarOpen(false)
+  }
+
   return (
-    <Frame>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <Frame wide={pane === 'week'}>
+      <div className={`mx-auto flex w-full flex-col gap-6 ${pane === 'week' ? 'max-w-[1200px]' : 'max-w-3xl'}`}>
         <Panes pane={pane} onPane={setPane} />
         {pane === 'stats' ? (
           <PlanStats plan={plan} />
         ) : (
-          <>
-            <WeekHeader week={week} km={dailyKm(activities, week)} onWeek={setWeek} />
+          <div className="flex items-start gap-8">
+            <aside className="sticky top-16 hidden w-[340px] shrink-0 lg:block">
+              <MonthList year={shown.year} month={shown.month} week={week} plan={plan} onMonth={shiftMonth} onWeek={pickWeek} />
+            </aside>
+            <div className="flex min-w-0 flex-1 flex-col gap-6">
+            <WeekHeader week={week} km={dailyKm(activities, week)} onWeek={goWeek} onOpenCalendar={() => setCalendarOpen(true)} />
             <section className="rounded-[22px] border border-[#1E2330] bg-[#10131A] p-4 sm:p-5">
               <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                 <div>
@@ -174,9 +207,17 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                 </li>
               </ul>
             </section>
-          </>
+            </div>
+          </div>
         )}
       </div>
+      {calendarOpen && pane === 'week' ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center lg:hidden" onClick={() => setCalendarOpen(false)}>
+          <div role="dialog" aria-label="Calendar" className="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-[22px] border border-[#1E2330] bg-[#10131A] p-4" onClick={(event) => event.stopPropagation()}>
+            <MonthList year={shown.year} month={shown.month} week={week} plan={plan} onMonth={shiftMonth} onWeek={pickWeek} />
+          </div>
+        </div>
+      ) : null}
     </Frame>
   )
 }
@@ -208,7 +249,7 @@ function Panes({ pane, onPane }: { pane: Pane; onPane: (pane: Pane) => void }) {
   )
 }
 
-function WeekHeader({ week, km, onWeek }: { week: string; km: number[]; onWeek: (week: string) => void }) {
+function WeekHeader({ week, km, onWeek, onOpenCalendar }: { week: string; km: number[]; onWeek: (week: string) => void; onOpenCalendar: () => void }) {
   const current = weekOf(new Date())
   const monday = parseDay(week)
   const sunday = parseDay(shiftWeek(week, 1))
@@ -226,6 +267,9 @@ function WeekHeader({ week, km, onWeek }: { week: string; km: number[]; onWeek: 
       <div className="flex items-end gap-5">
         <WeekBars km={km} todayIndex={todayIndex} />
         <div className="flex items-center gap-1.5">
+          <button type="button" aria-label="Open calendar" onClick={onOpenCalendar} className="cal-btn grid h-10 w-10 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] text-[#E8EAF0] lg:hidden">
+            <CalendarIcon />
+          </button>
           <NavButton label="Previous week" onClick={() => onWeek(shiftWeek(week, -1))}>
             <Chevron left />
           </NavButton>
@@ -433,6 +477,104 @@ function PlanStats({ plan }: { plan: PlannedSession[] }) {
         )}
       </p>
     </div>
+  )
+}
+
+function MonthList({ year, month, week, plan, onMonth, onWeek }: { year: number; month: number; week: string; plan: PlannedSession[]; onMonth: (delta: number) => void; onWeek: (week: string) => void }) {
+  const next = addMonth(year, month, 1)
+  return (
+    <div className="flex flex-col gap-6">
+      <MonthPlan year={year} month={month} week={week} plan={plan} arrows onMonth={onMonth} onWeek={onWeek} />
+      <MonthPlan year={next.year} month={next.month} week={week} plan={plan} onWeek={onWeek} />
+    </div>
+  )
+}
+
+function MonthPlan({
+  year,
+  month,
+  week,
+  plan,
+  arrows = false,
+  onMonth,
+  onWeek,
+}: {
+  year: number
+  month: number
+  week: string
+  plan: PlannedSession[]
+  arrows?: boolean
+  onMonth?: (delta: number) => void
+  onWeek: (week: string) => void
+}) {
+  const title = new Date(year, month, 1).toLocaleDateString('en-GB', { month: 'long' })
+  const rows = weeksInMonth(year, month).map((monday) => ({ monday, sessions: plan.filter((session) => session.week === monday && session.status !== 'cancelled') }))
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{title}</h2>
+        {arrows && onMonth ? (
+          <div className="flex gap-1">
+            <NavButton label="Previous month" onClick={() => onMonth(-1)}>
+              <Chevron left />
+            </NavButton>
+            <NavButton label="Next month" onClick={() => onMonth(1)}>
+              <Chevron />
+            </NavButton>
+          </div>
+        ) : null}
+      </div>
+      <ul className="mt-3 flex flex-col gap-2">
+          {rows.map((row) => {
+            const on = row.monday === week
+            return (
+              <li key={row.monday}>
+                <button type="button" onClick={() => onWeek(row.monday)} className="flex w-full items-center gap-3 text-left">
+                  <span className={`shrink-0 text-xs leading-tight tabular-nums ${on ? 'text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}>{weekRange(row.monday)}</span>
+                  <span className={`flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${on ? 'border-[#E8EAF0] bg-white/[0.04]' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]'}`}>
+                    {row.sessions.map((session) => (
+                      <span key={session.id} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: TAG_COLOR[session.tag], color: '#0B0D12' }}>
+                        {tagOf(session.tag).label}
+                      </span>
+                    ))}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+    </section>
+  )
+}
+
+function addMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const date = new Date(year, month + delta, 1)
+  return { year: date.getFullYear(), month: date.getMonth() }
+}
+
+function weeksInMonth(year: number, month: number): string[] {
+  const start = startOfWeek(new Date(year, month, 1))
+  const end = startOfWeek(new Date(year, month + 1, 0))
+  const weeks: string[] = []
+  for (const cursor = new Date(start); cursor.getTime() <= end.getTime(); cursor.setDate(cursor.getDate() + 7)) {
+    if (cursor.getFullYear() === year && cursor.getMonth() === month) weeks.push(formatDayInput(cursor))
+  }
+  return weeks
+}
+
+function weekRange(week: string): string {
+  const monday = parseDay(week)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  return rangeLabel(monday, sunday)
+}
+
+function CalendarIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <rect x="2.5" y="3.5" width="13" height="12" rx="2" />
+      <path d="M2.5 7.5h13M6 2.5v2M12 2.5v2" />
+    </svg>
   )
 }
 
