@@ -5,6 +5,7 @@ import { SportIcon } from './SportIcon'
 import { formatDistance, formatHours, SPORT_COLOR, SPORT_LABEL } from '../lib/format'
 import { activeWeeks, buildBuckets, formatWindow, grainFor, periodBounds, windowBounds } from '../lib/period'
 import { GRID, TICK } from './chartChrome'
+import { ChartFrame } from './ChartFrame'
 import { Segment } from './Segment'
 
 const RANGES: { id: Exclude<RangeId, 'custom'>; label: string }[] = [
@@ -184,7 +185,9 @@ export function VolumeChart({
         ))}
       </div>
 
-      <div className="mt-2 h-48 rounded-md bg-black/25" onMouseLeave={() => setHover(null)}>
+      <ChartFrame label="Volume">
+        {(full) => (
+      <div className={`${full ? 'h-full' : 'mt-2 h-48'} rounded-md bg-black/25`} onMouseLeave={() => setHover(null)}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={rows}
@@ -215,6 +218,8 @@ export function VolumeChart({
           </BarChart>
         </ResponsiveContainer>
       </div>
+        )}
+      </ChartFrame>
     </section>
   )
 }

@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
+import { ChartFrame, svgLocalPoint } from '../components/ChartFrame'
+import { ChartNote } from '../components/ChartNote'
 import { Segment } from '../components/Segment'
+import { SpeedProfile } from './SpeedProfile'
 import { formatDuration } from '../lib/format'
 import { ZONE_BANDS, type ZoneStyle } from '../lib/load'
 import { useActivities } from '../lib/activities'
@@ -10,14 +13,12 @@ import type { HrMethod, ZoneEdges } from '../lib/intensity'
 import type { Activity } from '../types'
 import { PACE_SOLID_SEC, buildHrBins, buildPaceCost, paceRows, paceWindows, zoneSlices, type HrBin, type PaceCompare, type PaceCost, type PaceRow, type PaceSpan, type ZoneSlice } from '../lib/physiology'
 
-type ProfileTab = 'physiology' | 'speed' | 'uphill' | 'downhill'
+type ProfileTab = 'physiology' | 'speed'
 type ChartId = 'pace' | 'hr'
 
 const TABS: { id: ProfileTab; label: string }[] = [
   { id: 'physiology', label: 'Physiology' },
   { id: 'speed', label: 'Speed' },
-  { id: 'uphill', label: 'Uphill' },
-  { id: 'downhill', label: 'Downhill' },
 ]
 
 export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; restHr: number; method: HrMethod; zones: ZoneEdges }) {
@@ -27,7 +28,7 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-16 pt-2">
       <h1 className="sr-only">Profile</h1>
-      <div role="tablist" aria-label="Profile" className="flex gap-2 overflow-x-auto">
+      <div role="tablist" aria-label="Profile" className="flex gap-5 overflow-x-auto">
         {TABS.map((item) => {
           const on = tab === item.id
           return (
@@ -37,16 +38,45 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
               role="tab"
               aria-selected={on}
               onClick={() => setTab(item.id)}
-              className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm ${on ? 'border-white/20 bg-white/[0.08] text-white' : 'border-white/10 bg-white/[0.03] text-white/55 hover:border-white/20 hover:text-white'}`}
+              className={`flex shrink-0 items-center gap-2 py-2 text-sm ${on ? 'text-white' : 'text-white/55 hover:text-white'}`}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${on ? 'bg-[#f472b6] shadow-[0_0_8px_2px_rgba(244,114,182,0.9)]' : 'bg-[#2a3140] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]'}`} />
-              {item.label}
+              {item.id === 'physiology' ? <HeartLed on={on} /> : <SpeedLed on={on} />}
+              <span className={on ? 'border-b border-white pb-0.5' : 'border-b border-transparent pb-0.5'}>{item.label}</span>
             </button>
           )
         })}
       </div>
       {tab === 'physiology' ? <Physiology ready={ready} activities={activities} maxHr={maxHr} restHr={restHr} method={method} zones={zones} /> : null}
+      {tab === 'speed' ? <SpeedProfile ready={ready} activities={activities} /> : null}
     </div>
+  )
+}
+
+function HeartLed({ on }: { on: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className={on ? 'text-[#38bdf8] drop-shadow-[0_0_6px_rgba(56,189,248,0.95)]' : 'text-white/30'}>
+      <path d="M8 13.2S2.6 9.6 2.6 6.3A2.7 2.7 0 0 1 8 5.2a2.7 2.7 0 0 1 5.4 1.1c0 3.3-5.4 6.9-5.4 6.9Z" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
+}
+
+function SpeedLed({ on }: { on: boolean }) {
+  const src = `${import.meta.env.BASE_URL}icons/icon_asphaltbuner.svg`
+  return (
+    <span
+      aria-hidden
+      className={`inline-block h-5 w-5 shrink-0 ${on ? 'bg-[#ef4444] drop-shadow-[0_0_6px_rgba(239,68,68,0.95)]' : 'bg-white/30'}`}
+      style={{
+        WebkitMaskImage: `url("${src}")`,
+        maskImage: `url("${src}")`,
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+      }}
+    />
   )
 }
 
@@ -67,8 +97,8 @@ function Physiology({
 }) {
   const [front, setFront] = useState<ChartId>('pace')
   const [style, setStyle] = useState<ZoneStyle>('5')
-  const [span, setSpan] = useState<PaceSpan>('90d')
-  const [compare, setCompare] = useState<PaceCompare>('previous')
+  const [span, setSpan] = useState<PaceSpan>('1y')
+  const [compare, setCompare] = useState<PaceCompare>('year')
   const [year, setYear] = useState(() => new Date().getFullYear() - 1)
   const [allSpeeds, setAllSpeeds] = useState(false)
   const years = useMemo(() => {
@@ -128,34 +158,6 @@ function Physiology({
   )
 }
 
-function ChartNote({ label, align = 'left', children }: { label: string; align?: 'left' | 'right'; children: ReactNode }) {
-  return (
-    <details
-      className="pointer-events-auto relative shrink-0"
-      onToggle={(event) => {
-        const panel = event.currentTarget.querySelector('div')
-        if (!panel || !event.currentTarget.open) return
-        const room = window.innerHeight - panel.getBoundingClientRect().top - 80
-        panel.style.maxHeight = `${Math.max(96, room)}px`
-      }}
-    >
-      <summary
-        aria-label={label}
-        className="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full text-white/50 ring-1 ring-inset ring-white/25 marker:content-none [&::-webkit-details-marker]:hidden"
-      >
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
-          <path d="M8 7.2v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          <circle cx="8" cy="4.6" r="0.75" fill="currentColor" />
-        </svg>
-      </summary>
-      <div className={`absolute z-20 mt-2 max-h-[70vh] w-80 max-w-[calc(100vw-2.5rem)] overflow-y-auto rounded-lg border border-white/15 bg-[#0b0e14] p-3 text-left text-xs leading-relaxed text-white/70 shadow-lg ${align === 'right' ? 'right-0' : 'left-0'}`}>
-        {children}
-      </div>
-    </details>
-  )
-}
-
 function activitiesIn(activities: Activity[], start: number, end: number): Activity[] {
   return activities.filter((activity) => {
     const time = new Date(activity.date).getTime()
@@ -193,8 +195,10 @@ function PaceCard({
   const rows = useMemo(() => paceRows(model.points, prior.points, allSpeeds), [model, prior, allSpeeds])
   const [zoom, setZoom] = useState<[number, number] | null>(null)
   const [band, setBand] = useState<[number, number] | null>(null)
+  const [coarse, setCoarse] = useState(false)
   const anchor = useRef<number | null>(null)
   const edge = useRef<number | null>(null)
+  useEffect(() => setCoarse(window.matchMedia('(pointer: coarse)').matches), [])
   const scope = `${span}:${compare}:${year}:${allSpeeds}`
   const scopeSeen = useRef(scope)
   if (scopeSeen.current !== scope) {
@@ -334,60 +338,43 @@ function PaceCard({
       ) : null}
       {model.points.length === 0 ? <p className="mt-6 text-sm text-[#9AA3B5]">No speed and heart-rate samples in this period.</p> : null}
       {model.points.length > 0 && rows.length === 0 ? <p className="mt-6 text-sm text-[#9AA3B5]">No pace has 20 samples and 3 runs on both sides.</p> : null}
-      {rows.length > 0 ? (
-        <div role="group" aria-label="Pace cost chart" className={compact ? 'mt-2 h-36 overflow-hidden' : 'mt-4 h-[260px] cursor-crosshair select-none overflow-hidden sm:h-[360px]'}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={hrSource}
-              margin={{ top: compact ? 4 : 16, right: 8, left: 0, bottom: 0 }}
-              onMouseDown={begin}
-              onMouseMove={move}
-              onMouseUp={end}
-              onMouseLeave={end}
-              onDoubleClick={() => setZoom(null)}
-              onTouchStart={begin}
-              onTouchMove={move}
-              onTouchEnd={end}
-            >
-              <CartesianGrid vertical={false} stroke={GRID} />
-              {compact ? null : (
-                <XAxis xAxisId="pace" dataKey="speed" type="number" domain={domain} allowDataOverflow orientation="top" tick={TICK} tickLine={false} axisLine={false} minTickGap={28} tickFormatter={(value: number) => paceLabel(value)} />
-              )}
-              <XAxis xAxisId="speed" dataKey="speed" type="number" domain={domain} allowDataOverflow tick={TICK} tickLine={false} axisLine={false} minTickGap={28} tickFormatter={(value: number) => value.toFixed(1)} />
-              <YAxis width={36} domain={yDomain} allowDataOverflow tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => `${Math.round(value)}`} />
-              {compact ? null : <Tooltip axisId="speed" content={(props) => <PaceTip {...props} />} cursor={{ stroke: 'rgba(255,255,255,0.35)' }} />}
-              {band && band[0] !== band[1] ? (
-                <ReferenceArea xAxisId="speed" x1={Math.min(band[0], band[1])} x2={Math.max(band[0], band[1])} fill="#f472b6" fillOpacity={0.12} stroke="none" />
-              ) : null}
-              <Area xAxisId="speed" dataKey="p25" stackId="band" stroke="none" fill="transparent" connectNulls={false} isAnimationActive={false} legendType="none" tooltipType="none" />
-              <Area xAxisId="speed" dataKey="iqr" stackId="band" stroke="none" fill="#9d174d" fillOpacity={0.55} connectNulls={false} isAnimationActive={false} legendType="none" tooltipType="none" />
-              <Line xAxisId="speed" type="monotone" dataKey="beforeThin" stroke="#a8a29e" strokeOpacity={0.45} strokeWidth={1} strokeDasharray="3 3" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
-              <Line xAxisId="speed" type="monotone" dataKey="before" stroke="#a8a29e" strokeWidth={1.25} strokeDasharray="4 3" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
-              <Line xAxisId="speed" type="monotone" dataKey="medianThin" stroke="#f472b6" strokeOpacity={0.35} strokeWidth={1.5} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
-              <Line xAxisId="speed" type="monotone" dataKey="median" stroke="#f472b6" strokeWidth={2} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+      {rows.length > 0 && compact ? (
+        <PaceChart compact hrSource={hrSource} domain={domain} yDomain={yDomain} band={band} className="mt-2 h-36 overflow-hidden" />
       ) : null}
-      {!compact && rows.length > 0 ? (
-        <div className="mt-1 flex h-4 items-end gap-px" style={{ marginLeft: 36, marginRight: 8 }} aria-hidden>
-          {hrSource.map((row) => (
-            <span
-              key={row.speed}
-              className="min-w-0 flex-1 rounded-t-sm bg-[#f472b6]"
-              style={{
-                height: row.n > 0 ? `${Math.max(12, Math.round(Math.sqrt(row.n / maxN) * 100))}%` : 0,
-                opacity: row.n >= PACE_SOLID_SEC ? 0.9 : 0.3,
-              }}
-            />
-          ))}
-        </div>
+      {rows.length > 0 && !compact ? (
+        <ChartFrame label="What does your pace cost, in beats?">
+          {(full) => (
+            <PaceZoom
+              full={full}
+              coarse={coarse}
+              domain={domain}
+              rows={rows}
+              zoom={zoom}
+              setZoom={setZoom}
+              setBand={setBand}
+            >
+              <PaceChart
+                hrSource={hrSource}
+                domain={domain}
+                yDomain={yDomain}
+                band={band}
+                coarse={coarse}
+                begin={begin}
+                move={move}
+                end={end}
+                onReset={() => setZoom(null)}
+                className={full ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 h-[260px] cursor-crosshair select-none overflow-hidden sm:h-[360px]'}
+              />
+              <SampleBars rows={hrSource} maxN={maxN} />
+            </PaceZoom>
+          )}
+        </ChartFrame>
       ) : null}
       {!compact && rows.length > 0 ? (
         <>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[#9AA3B5]">
-            <span className="flex items-center gap-2"><span className="h-0.5 w-4 bg-[#f472b6]" />This {spanLabel}</span>
-            <span className="flex items-center gap-2"><span className="h-2.5 w-4 rounded-sm bg-[#9d174d]" />25th–75th</span>
+            <span className="flex items-center gap-2"><span className="h-0.5 w-4 bg-[#38bdf8]" />This {spanLabel}</span>
+            <span className="flex items-center gap-2"><span className="h-2.5 w-4 rounded-sm bg-[#075985]" />25th–75th</span>
             {hasBefore ? (
               <span className="flex items-center gap-2"><span className="w-4 border-t border-dashed border-[#a8a29e]" />{compare === 'custom' ? String(year) : compare === 'year' ? 'Last year' : 'Previous'}</span>
             ) : null}
@@ -395,11 +382,206 @@ function PaceCard({
           </div>
           <p className="mt-2 text-xs text-white/40">
             {!allSpeeds ? 'Slower than 8:00/km and the thin fast tail are hidden. ' : null}
-            A pace needs 20 samples now and 3 runs on both sides. One run counts for at most a quarter of the time. Drag a pace range to zoom.
+            A pace needs 20 samples now and 3 runs on both sides. One run counts for at most a quarter of the time.{' '}
+            {coarse ? 'Pinch to zoom. Double-tap to reset.' : 'Drag a pace range to zoom.'}
           </p>
         </>
       ) : null}
     </section>
+  )
+}
+
+function PaceZoom({
+  full,
+  coarse,
+  domain,
+  rows,
+  setZoom,
+  setBand,
+  children,
+}: {
+  full: boolean
+  coarse: boolean
+  domain: [number, number]
+  rows: PaceRow[]
+  zoom: [number, number] | null
+  setZoom: (zoom: [number, number] | null) => void
+  setBand: (band: [number, number] | null) => void
+  children: ReactNode
+}) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const domainRef = useRef(domain)
+  const rowsRef = useRef(rows)
+  domainRef.current = domain
+  rowsRef.current = rows
+
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el || !coarse) return
+    let pinch: { dist: number; lo: number; hi: number; anchor: number } | null = null
+    let lastTap = 0
+
+    const speedAt = (clientX: number, clientY: number) => {
+      const local = svgLocalPoint(el, clientX, clientY)
+      const grid = el.querySelector('.recharts-cartesian-grid')
+      if (!local || !grid || !('getBBox' in grid)) return null
+      const box = (grid as SVGGraphicsElement).getBBox()
+      if (box.width <= 0) return null
+      const t = (local.x - box.x) / box.width
+      if (t < -0.08 || t > 1.08) return null
+      const [lo, hi] = domainRef.current
+      return lo + Math.min(1, Math.max(0, t)) * (hi - lo)
+    }
+
+    const start = (event: TouchEvent) => {
+      if (event.touches.length < 2) return
+      const a = speedAt(event.touches[0].clientX, event.touches[0].clientY)
+      const b = speedAt(event.touches[1].clientX, event.touches[1].clientY)
+      if (a === null || b === null) return
+      const [lo, hi] = domainRef.current
+      pinch = {
+        dist: Math.hypot(event.touches[0].clientX - event.touches[1].clientX, event.touches[0].clientY - event.touches[1].clientY),
+        lo,
+        hi,
+        anchor: (a + b) / 2,
+      }
+    }
+
+    const move = (event: TouchEvent) => {
+      if (event.touches.length < 2 || !pinch) return
+      event.preventDefault()
+      const dist = Math.hypot(event.touches[0].clientX - event.touches[1].clientX, event.touches[0].clientY - event.touches[1].clientY)
+      if (dist < 12) return
+      const all = rowsRef.current
+      const fullLo = all[0]?.speed ?? pinch.lo
+      const fullHi = all[all.length - 1]?.speed ?? pinch.hi
+      const span = Math.max(1, (pinch.hi - pinch.lo) * (pinch.dist / dist))
+      if (span >= (fullHi - fullLo) * 0.98) {
+        setZoom(null)
+        return
+      }
+      let lo = pinch.anchor - span / 2
+      let hi = lo + span
+      if (lo < fullLo) {
+        lo = fullLo
+        hi = fullLo + span
+      }
+      if (hi > fullHi) {
+        hi = fullHi
+        lo = fullHi - span
+      }
+      setZoom([lo, hi])
+    }
+
+    const end = (event: TouchEvent) => {
+      if (event.touches.length >= 2) return
+      if (pinch) {
+        pinch = null
+        setBand(null)
+        return
+      }
+      if (event.changedTouches.length !== 1) return
+      const now = Date.now()
+      if (now - lastTap < 300) setZoom(null)
+      lastTap = now
+    }
+
+    el.addEventListener('touchstart', start, { capture: true, passive: true })
+    el.addEventListener('touchmove', move, { capture: true, passive: false })
+    el.addEventListener('touchend', end, { capture: true })
+    el.addEventListener('touchcancel', end, { capture: true })
+    return () => {
+      el.removeEventListener('touchstart', start, true)
+      el.removeEventListener('touchmove', move, true)
+      el.removeEventListener('touchend', end, true)
+      el.removeEventListener('touchcancel', end, true)
+    }
+  }, [coarse, setBand, setZoom])
+
+  return (
+    <div ref={boxRef} className={full ? 'flex h-full touch-pan-y flex-col' : 'touch-pan-y'}>
+      {children}
+    </div>
+  )
+}
+
+function PaceChart({
+  compact = false,
+  coarse = false,
+  hrSource,
+  domain,
+  yDomain,
+  band,
+  begin,
+  move,
+  end,
+  onReset,
+  className,
+}: {
+  compact?: boolean
+  coarse?: boolean
+  hrSource: PaceRow[]
+  domain: [number, number]
+  yDomain: [number, number]
+  band: [number, number] | null
+  begin?: (state: { activeTooltipIndex?: number | string | null }) => void
+  move?: (state: { activeTooltipIndex?: number | string | null }) => void
+  end?: () => void
+  onReset?: () => void
+  className: string
+}) {
+  return (
+    <div role="group" aria-label="Pace cost chart" className={className}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart
+          data={hrSource}
+          margin={{ top: compact ? 4 : 16, right: 8, left: 0, bottom: 0 }}
+          {...(coarse
+            ? {}
+            : {
+                onMouseDown: begin,
+                onMouseMove: move,
+                onMouseUp: end,
+                onMouseLeave: end,
+                onDoubleClick: onReset,
+              })}
+        >
+          <CartesianGrid vertical={false} stroke={GRID} />
+          {compact ? null : (
+            <XAxis xAxisId="pace" dataKey="speed" type="number" domain={domain} allowDataOverflow orientation="top" tick={TICK} tickLine={false} axisLine={false} minTickGap={28} tickFormatter={(value: number) => paceLabel(value)} />
+          )}
+          <XAxis xAxisId="speed" dataKey="speed" type="number" domain={domain} allowDataOverflow tick={TICK} tickLine={false} axisLine={false} minTickGap={28} tickFormatter={(value: number) => value.toFixed(1)} />
+          <YAxis width={36} domain={yDomain} allowDataOverflow tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => `${Math.round(value)}`} />
+          {compact ? null : <Tooltip axisId="speed" content={(props) => <PaceTip {...props} />} cursor={{ stroke: 'rgba(255,255,255,0.35)' }} />}
+          {band && band[0] !== band[1] ? (
+            <ReferenceArea xAxisId="speed" x1={Math.min(band[0], band[1])} x2={Math.max(band[0], band[1])} fill="#38bdf8" fillOpacity={0.12} stroke="none" />
+          ) : null}
+          <Area xAxisId="speed" dataKey="p25" stackId="band" stroke="none" fill="transparent" connectNulls={false} isAnimationActive={false} legendType="none" tooltipType="none" />
+          <Area xAxisId="speed" dataKey="iqr" stackId="band" stroke="none" fill="#075985" fillOpacity={0.55} connectNulls={false} isAnimationActive={false} legendType="none" tooltipType="none" />
+          <Line xAxisId="speed" type="monotone" dataKey="beforeThin" stroke="#a8a29e" strokeOpacity={0.45} strokeWidth={1} strokeDasharray="3 3" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+          <Line xAxisId="speed" type="monotone" dataKey="before" stroke="#a8a29e" strokeWidth={1.25} strokeDasharray="4 3" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+          <Line xAxisId="speed" type="monotone" dataKey="medianThin" stroke="#38bdf8" strokeOpacity={0.35} strokeWidth={1.5} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+          <Line xAxisId="speed" type="monotone" dataKey="median" stroke="#38bdf8" strokeWidth={2} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function SampleBars({ rows, maxN }: { rows: PaceRow[]; maxN: number }) {
+  return (
+    <div className="mt-1 flex h-4 items-end gap-px" style={{ marginLeft: 36, marginRight: 8 }} aria-hidden>
+      {rows.map((row) => (
+        <span
+          key={row.speed}
+          className="min-w-0 flex-1 rounded-t-sm bg-[#38bdf8]"
+          style={{
+            height: row.n > 0 ? `${Math.max(12, Math.round(Math.sqrt(row.n / maxN) * 100))}%` : 0,
+            opacity: row.n >= PACE_SOLID_SEC ? 0.9 : 0.3,
+          }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -453,26 +635,19 @@ function HrCard({
         ) : null}
       </div>
       {total <= 0 ? <p className="mt-6 text-sm text-[#9AA3B5]">No heart-rate samples in running sessions.</p> : null}
-      {total > 0 ? (
-        <div className={compact ? 'mt-2 h-36' : 'mt-4 h-[260px] sm:h-[360px]'}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid vertical={false} stroke={GRID} />
-              <XAxis dataKey="hr" type="number" domain={[lo, hi]} tick={TICK} tickLine={false} axisLine={false} minTickGap={24} />
-              <YAxis width={40} domain={[0, 'auto']} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTimeTick(value)} />
-              {compact ? null : <Tooltip content={(props) => <HrTip {...props} />} cursor={{ stroke: 'rgba(255,255,255,0.35)' }} />}
-              {slices.map((slice) => {
-                const from = Math.max(slice.from ?? lo, lo)
-                const to = Math.min(slice.to ?? hi, hi)
-                if (to <= from) return null
-                return <ReferenceArea key={slice.key} x1={from} x2={to} fill={slice.color} fillOpacity={0.1} stroke="none" />
-              })}
-              {ZONE_BANDS[style].map((band) => (
-                <Area key={band.key} dataKey={band.key} type="monotone" stroke={band.color} fill={band.color} fillOpacity={0.35} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={false} />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
+      {total > 0 && compact ? (
+        <div className="mt-2 h-36">
+          <HrChart rows={rows} slices={slices} style={style} lo={lo} hi={hi} />
         </div>
+      ) : null}
+      {total > 0 && !compact ? (
+        <ChartFrame label="Time at each heart rate">
+          {(full) => (
+            <div className={full ? 'h-full' : 'mt-4 h-[260px] sm:h-[360px]'}>
+              <HrChart rows={rows} slices={slices} style={style} lo={lo} hi={hi} tip />
+            </div>
+          )}
+        </ChartFrame>
       ) : null}
       {!compact && total > 0 ? (
         <ul className="mt-3 space-y-1">
@@ -491,6 +666,28 @@ function HrCard({
         </ul>
       ) : null}
     </section>
+  )
+}
+
+function HrChart({ rows, slices, style, lo, hi, tip = false }: { rows: Record<string, number | null>[]; slices: ZoneSlice[]; style: ZoneStyle; lo: number; hi: number; tip?: boolean }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid vertical={false} stroke={GRID} />
+        <XAxis dataKey="hr" type="number" domain={[lo, hi]} tick={TICK} tickLine={false} axisLine={false} minTickGap={24} />
+        <YAxis width={40} domain={[0, 'auto']} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTimeTick(value)} />
+        {tip ? <Tooltip content={(props) => <HrTip {...props} />} cursor={{ stroke: 'rgba(255,255,255,0.35)' }} /> : null}
+        {slices.map((slice) => {
+          const from = Math.max(slice.from ?? lo, lo)
+          const to = Math.min(slice.to ?? hi, hi)
+          if (to <= from) return null
+          return <ReferenceArea key={slice.key} x1={from} x2={to} fill={slice.color} fillOpacity={0.1} stroke="none" />
+        })}
+        {ZONE_BANDS[style].map((band) => (
+          <Area key={band.key} dataKey={band.key} type="monotone" stroke={band.color} fill={band.color} fillOpacity={0.35} strokeWidth={2} connectNulls={false} isAnimationActive={false} dot={false} />
+        ))}
+      </ComposedChart>
+    </ResponsiveContainer>
   )
 }
 
