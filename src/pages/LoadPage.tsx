@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
+import { ChartFrame } from '../components/ChartFrame'
 import { Segment } from '../components/Segment'
 import { formatDuration } from '../lib/format'
 import {
@@ -138,7 +139,9 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
           {ready && !hasBars && !byDay ? <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period, so the zones cannot be split.</p> : null}
           {hasBars || byDay ? (
             <>
-              <div className="mt-4 h-[260px] sm:h-[360px]">
+              <ChartFrame label="Training load">
+                {(full) => (
+              <div className={full ? 'h-full' : 'mt-4 h-[260px] sm:h-[360px]'}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={rows} margin={{ top: 12, right: showLoad ? 12 : 8, left: 0, bottom: 0 }}>
                     <CartesianGrid vertical={false} stroke={GRID} />
@@ -167,6 +170,8 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+                )}
+              </ChartFrame>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
                 {ZONE_BANDS[style].map((band) => (
                   <span key={band.key} className="flex items-center gap-2 text-xs text-[#9AA3B5]">
