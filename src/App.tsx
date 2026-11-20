@@ -145,7 +145,7 @@ function Shell({
       ) : null}
       {path === '/planner' ? (
         <main>
-          <PlannerPage />
+          <PlannerPage maxHr={maxHr} restHr={restHr} method={method} split={zones} />
         </main>
       ) : null}
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
