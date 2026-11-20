@@ -398,20 +398,18 @@ function SessionRow({
               Restore
             </button>
           ) : (
-            <>
-              <button
-                type="button"
-                aria-expanded={linking}
-                onClick={() => setLinking((value) => !value)}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${linking ? 'bg-white/10 text-[#E8EAF0]' : 'bg-[#E8EAF0] text-[#0B0D12]'}`}
-              >
-                Mark as completed
-              </button>
-              <button type="button" aria-label="Delete session" onClick={onDelete} className="grid h-7 w-7 place-items-center rounded-full text-[#9AA3B5] hover:bg-white/5 hover:text-[#E7A3A3]">
-                <BinIcon />
-              </button>
-            </>
+            <button
+              type="button"
+              aria-expanded={linking}
+              onClick={() => setLinking((value) => !value)}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${linking ? 'bg-white/10 text-[#E8EAF0]' : 'bg-[#E8EAF0] text-[#0B0D12]'}`}
+            >
+              Mark as completed
+            </button>
           )}
+          <button type="button" aria-label="Delete session" onClick={onDelete} className="grid h-7 w-7 place-items-center rounded-full text-[#9AA3B5] hover:bg-white/5 hover:text-[#E7A3A3]">
+            <BinIcon />
+          </button>
         </div>
       </div>
       {linking && !done && !cancelled ? (
