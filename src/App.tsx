@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { ConnectorsModal } from './components/Connectors'
 import { Segment } from './components/Segment'
 import { ActivitiesProvider, useActivities } from './lib/activities'
 import { ActivitiesPage } from './pages/ActivitiesPage'
@@ -112,7 +114,7 @@ function Shell({
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ImportZip />
-            <HrSettings maxHr={maxHr} onChange={onMaxHr} restHr={restHr} onRest={onRestHr} method={method} onMethod={onMethod} zones={zones} onZones={onZones} />
+            <ProfileMenu maxHr={maxHr} onChange={onMaxHr} restHr={restHr} onRest={onRestHr} method={method} onMethod={onMethod} zones={zones} onZones={onZones} />
           </div>
         </div>
       </header>
@@ -177,16 +179,7 @@ function ImportZip() {
 
 const ZONE_COLORS = ['#1F6F8B', '#5EB0C8', '#FACC15', '#FB923C', '#DC2626']
 
-function HrSettings({
-  maxHr,
-  onChange,
-  restHr,
-  onRest,
-  method,
-  onMethod,
-  zones,
-  onZones,
-}: {
+type HrProps = {
   maxHr: number
   onChange: (value: number) => void
   restHr: number
@@ -195,12 +188,93 @@ function HrSettings({
   onMethod: (value: HrMethod) => void
   zones: ZoneEdges
   onZones: (values: number[]) => ZoneEdges
-}) {
-  const [open, setOpen] = useState(false)
+}
+
+/** Profile icon in the header. Its menu opens the heart-rate panel or the Connectors window. */
+function ProfileMenu(props: HrProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [hrOpen, setHrOpen] = useState(false)
+  const [connectorsOpen, setConnectorsOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    return () => document.removeEventListener('mousedown', onPointer)
+  }, [menuOpen])
+
+  const closeHr = useCallback(() => setHrOpen(false), [])
+  const closeConnectors = useCallback(() => setConnectorsOpen(false), [])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        className={`grid h-9 w-9 place-items-center rounded-lg border ${menuOpen ? 'border-white/40 bg-white/10 text-white' : 'border-white/10 text-white/70 hover:text-white'}`}
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        aria-label="Profile menu"
+        onClick={() => setMenuOpen((current) => !current)}
+      >
+        <ProfileIcon />
+      </button>
+      {menuOpen ? (
+        <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-48 rounded-xl border border-white/10 bg-[#12161E] p-1 shadow-xl">
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+            onClick={() => {
+              setMenuOpen(false)
+              setHrOpen(true)
+            }}
+          >
+            Heart rate
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full rounded-lg px-3 py-2 text-left text-sm text-white/80 hover:bg-white/5"
+            onClick={() => {
+              setMenuOpen(false)
+              setConnectorsOpen(true)
+            }}
+          >
+            Connectors
+          </button>
+        </div>
+      ) : null}
+      <HrSettings {...props} open={hrOpen} onClose={closeHr} />
+      {/* Portal: the header has backdrop-blur, which would trap a fixed modal inside the 56px bar. */}
+      {connectorsOpen ? createPortal(<ConnectorsModal onClose={closeConnectors} />, document.body) : null}
+    </div>
+  )
+}
+
+function HrSettings({
+  open,
+  onClose,
+  maxHr,
+  onChange,
+  restHr,
+  onRest,
+  method,
+  onMethod,
+  zones,
+  onZones,
+}: HrProps & { open: boolean; onClose: () => void }) {
   const [draft, setDraft] = useState(String(maxHr))
   const [restDraft, setRestDraft] = useState(String(restHr))
   const [zoneDraft, setZoneDraft] = useState(() => zones.map(String))
   const rootRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -208,10 +282,10 @@ function HrSettings({
     setRestDraft(String(restHr))
     setZoneDraft(zones.map(String))
     const onPointer = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(event.target as Node)) onCloseRef.current()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('mousedown', onPointer)
     document.addEventListener('keydown', onKey)
@@ -268,16 +342,6 @@ function HrSettings({
 
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        className={`grid h-9 w-9 place-items-center rounded-lg border ${open ? 'border-white/40 bg-white/10 text-white' : 'border-white/10 text-white/70 hover:text-white'}`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Heart rate settings, ${method === 'karvonen' ? 'Karvonen' : 'percent of max'}, ${maxHr} bpm`}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Gear />
-      </button>
       {open ? (
         <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-white/10 bg-[#12161E] p-3 shadow-xl">
           <div className="flex items-center gap-2">
@@ -418,11 +482,11 @@ function RestIcon() {
   )
 }
 
-function Gear() {
+function ProfileIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="9" cy="9" r="2.2" />
-      <path d="M9 1.8v1.7M9 14.5v1.7M1.8 9h1.7M14.5 9h1.7M3.7 3.7l1.2 1.2M13.1 13.1l1.2 1.2M14.3 3.7l-1.2 1.2M4.9 13.1l-1.2 1.2" />
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="7" r="2.8" />
+      <path d="M4.5 16.8c.9-2.9 3-4.2 5.5-4.2s4.6 1.3 5.5 4.2" />
     </svg>
   )
 }

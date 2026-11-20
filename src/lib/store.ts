@@ -1,5 +1,6 @@
 import { normalizeSport } from './format'
-import type { Activity, ImportReport } from '../types'
+import { sportFromType } from './strava'
+import type { Activity, GarminState, ImportReport } from '../types'
 
 export type SavedBundle = {
   activities: Activity[]
@@ -9,6 +10,7 @@ export type SavedBundle = {
 const DB_NAME = 'asphaltburner'
 const STORE = 'bundle'
 const KEY = 'v2'
+const GARMIN_KEY = 'garmin'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -34,7 +36,11 @@ export async function loadBundle(): Promise<SavedBundle | null> {
       }
       resolve({
         ...bundle,
-        activities: bundle.activities.map((activity) => ({ ...activity, sport: normalizeSport(String(activity.sport)) })),
+        // Re-derive from the type, so rows saved before a mapping fix (hiking counted as run) are corrected.
+        activities: bundle.activities.map((activity) => ({
+          ...activity,
+          sport: activity.type ? sportFromType(activity.type) : normalizeSport(String(activity.sport)),
+        })),
       })
     }
     request.onerror = () => reject(request.error)
@@ -57,4 +63,28 @@ export async function clearBundle(): Promise<void> {
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
   })
+}
+
+function request<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const pending = run(db.transaction(STORE, mode).objectStore(STORE))
+        pending.onsuccess = () => resolve(pending.result)
+        pending.onerror = () => reject(pending.error)
+      }),
+  )
+}
+
+/** Garmin key and sync progress live under their own key, apart from the activity bundle. */
+export async function loadGarmin(): Promise<GarminState | null> {
+  return (await request<GarminState | undefined>('readonly', (store) => store.get(GARMIN_KEY))) ?? null
+}
+
+export async function saveGarmin(state: GarminState): Promise<void> {
+  await request('readwrite', (store) => store.put(state, GARMIN_KEY))
+}
+
+export async function clearGarmin(): Promise<void> {
+  await request('readwrite', (store) => store.delete(GARMIN_KEY))
 }
