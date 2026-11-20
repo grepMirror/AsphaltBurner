@@ -1,0 +1,139 @@
+import { useEffect, useState } from 'react'
+import { useActivities } from '../lib/activities'
+import { backendOnline } from '../lib/garmin'
+
+/** Modal listing every connector. Garmin is the first card; more cards are added to this list. */
+export function ConnectorsModal({ onClose }: { onClose: () => void }) {
+  const [online, setOnline] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    let cancelled = false
+    void backendOnline().then((ok) => {
+      if (!cancelled) setOnline(ok)
+    })
+    return () => {
+      cancelled = true
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Connectors"
+      className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12161E] p-5 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Connectors</h2>
+          <button type="button" aria-label="Close connectors" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:text-white">
+            ×
+          </button>
+        </div>
+        {online === false ? (
+          <p className="mt-3 text-xs text-red-200">Backend is not running. Connectors need it. Zip import still works.</p>
+        ) : null}
+        <div className="mt-4 space-y-3">
+          <GarminCard />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatDay(day: string): string {
+  const [year, month, dayOfMonth] = day.split('-').map(Number)
+  return new Date(year, month - 1, dayOfMonth).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function GarminCard() {
+  const { garmin, garminSyncing, garminError, connectGarmin, syncGarmin, disconnectGarmin } = useActivities()
+  const [apiKey, setApiKey] = useState('')
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
+
+  const connect = async () => {
+    setConnecting(true)
+    setConnectError(null)
+    try {
+      await connectGarmin(apiKey)
+      setApiKey('')
+    } catch (cause) {
+      setConnectError(cause instanceof Error ? cause.message : 'Garmin could not be reached.')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const history = !garmin
+    ? null
+    : garmin.historyComplete
+      ? 'Full history loaded.'
+      : garmin.oldestDay
+        ? `Loaded back to ${formatDay(garmin.oldestDay)}. Sync again to continue older history.`
+        : 'No history loaded yet.'
+
+  return (
+    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-white">Garmin</h3>
+        <span className={`text-xs ${garmin ? 'text-emerald-300' : 'text-white/45'}`}>{garmin ? 'Connected' : 'Not connected'}</span>
+      </div>
+      <p className="mt-1 text-xs text-white/55">
+        Your own activities through the Garmin Personal API. Days already covered by your zip are kept as they are.
+      </p>
+
+      {garmin ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-white/70">Last sync: {garmin.lastSync ? new Date(garmin.lastSync).toLocaleString() : 'never'}</p>
+          {history ? <p className="text-xs text-white/70">{history}</p> : null}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              disabled={garminSyncing}
+              onClick={() => void syncGarmin()}
+              className="rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 disabled:opacity-50"
+            >
+              {garminSyncing ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button type="button" onClick={() => void disconnectGarmin()} className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/70 hover:text-white">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!connecting) void connect()
+          }}
+        >
+          <input
+            type="password"
+            aria-label="Garmin Personal API key"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="Personal API key"
+            className="min-w-0 flex-1 rounded-md border border-white/15 bg-black px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+          />
+          <button type="submit" disabled={connecting || apiKey.trim() === ''} className="rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 disabled:opacity-50">
+            {connecting ? 'Connecting…' : 'Connect'}
+          </button>
+        </form>
+      )}
+
+      {connectError ? <p className="mt-2 text-xs text-red-200">{connectError}</p> : null}
+      {garminError ? <p className="mt-2 text-xs text-red-200">{garminError}</p> : null}
+    </section>
+  )
+}
