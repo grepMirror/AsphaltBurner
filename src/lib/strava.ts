@@ -2,7 +2,7 @@ import FitParser from 'fit-file-parser'
 import JSZip from 'jszip'
 import type { Activity, ImportReport, Sport, StreamPoint } from '../types'
 
-const RUN = new Set(['run', 'virtualrun', 'trailrun', 'hike', 'snowshoe', 'trail'])
+const RUN = new Set(['run', 'virtualrun', 'trailrun', 'snowshoe', 'trail'])
 const SWIM = new Set(['swim', 'swimming', 'openwaterswim', 'poolswim'])
 const RIDE = new Set(['ride', 'virtualride', 'mountainbikeride', 'gravelride', 'ebikeride', 'emountainbikeride', 'velomobile', 'handcycle'])
 
@@ -224,7 +224,7 @@ function optionalNumber(value: number | undefined, acceptZero = true): number | 
   return value
 }
 
-function parseFit(buffer: ArrayBuffer): Promise<TrackFile> {
+export function parseFit(buffer: ArrayBuffer): Promise<TrackFile> {
   return new Promise((resolve, reject) => {
     const parser = new FitParser({
       force: true,
@@ -332,7 +332,7 @@ export async function readStravaZip(
   }
 
   onProgress?.({ done: drafts.length, total: drafts.length, label: 'Done' })
-  const activities = drafts.map(({ file: _file, ...activity }) => activity)
+  const activities = drafts.map(({ file: _file, ...activity }) => ({ ...activity, source: 'zip' as const }))
   return {
     activities,
     report: { sessions: activities.length, tracks, skipped, unreadable, source },

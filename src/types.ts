@@ -22,6 +22,20 @@ export type Activity = {
   avgHr: number | null
   track: [number, number][]
   stream: StreamPoint[]
+  /** Missing on rows saved before connectors existed; those count as zip. */
+  source?: 'zip' | 'garmin'
+}
+
+export type GarminState = {
+  apiKey: string
+  token: string | null
+  tokenExpiresAt: number
+  lastSync: string | null
+  /** Top of the processed region (local YYYY-MM-DD). */
+  newestDay: string | null
+  /** Bottom of the processed region (local YYYY-MM-DD). */
+  oldestDay: string | null
+  historyComplete: boolean
 }
 
 export type ImportReport = {
