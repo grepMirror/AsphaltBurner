@@ -35,7 +35,7 @@ const SLOW = '#9f1239'
 const AMBER = '#fbbf24'
 const EFFORT = '#e0a045'
 
-const STREAM_LIMIT = 'Best efforts are read from run streams only. A session keeps at most 360 points. A gap over 3 minutes breaks the effort. A pace faster than 2:20/km or slower than 15:00/km is dropped. Heart rate outside 40–230 bpm is ignored, and a missing heart rate is not stored as zero.'
+const STREAM_LIMIT = 'Best efforts are read from run streams only. A session keeps at most 360 points. A gap over 3 minutes breaks the effort, and so does a speed above 47.7 km/h (Usain Bolt’s top speed + 3 km/h). Stops stay in the effort, so their time counts. A pace faster than 2:20/km or slower than 15:00/km is dropped. Heart rate outside 40–230 bpm is ignored, and a missing heart rate is not stored as zero.'
 
 export function SpeedProfile({ ready, activities }: { ready: boolean; activities: Activity[] }) {
   const model = useMemo(() => (ready ? buildSpeedProfile(activities) : null), [ready, activities])
