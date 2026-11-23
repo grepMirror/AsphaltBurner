@@ -13,6 +13,8 @@ const FRESH_MS = 90 * 24 * 60 * 60 * 1000
 const GAP_SEC = 180
 const PACE_MIN = 140
 const PACE_MAX = 900
+/** Usain Bolt's top speed (44.72 km/h) + 3 km/h. Faster than that is not running: the effort breaks there. */
+const MAX_SPEED = (44.72 + 3) / 3.6
 
 export type DistanceClass = 'short' | 'intermediate' | 'long' | 'veryLong'
 
@@ -133,12 +135,16 @@ function keptPace(seconds: number, meters: number): boolean {
   return pace >= PACE_MIN && pace <= PACE_MAX
 }
 
+/** Breaks on a time gap, a distance step, or an impossible speed. Stops stay inside the effort: elapsed time counts them. */
 function segments(stream: StreamPoint[]): StreamPoint[][] {
   const out: StreamPoint[][] = []
   let current: StreamPoint[] = []
   for (const point of stream) {
     const previous = current[current.length - 1]
-    const broken = previous !== undefined && (point.t - previous.t <= 0 || point.t - previous.t > GAP_SEC || point.d < previous.d)
+    const dt = previous ? point.t - previous.t : 0
+    const dd = previous ? point.d - previous.d : 0
+    const tooFast = (point.speed ?? 0) > MAX_SPEED || (dt > 0 && dd / dt > MAX_SPEED)
+    const broken = previous !== undefined && (dt <= 0 || dt > GAP_SEC || dd < 0 || tooFast)
     if (broken) {
       if (current.length >= 2) out.push(current)
       current = [point]
@@ -477,4 +483,11 @@ if (entry?.endsWith('speed.ts')) {
   ])
   if (messy !== null) throw new Error(`messy fit ${messy.r2}`)
   if (fitCriticalSpeed([{ meters: 1000, seconds: 250 }, { meters: 5000, seconds: 1250 }]) !== null) throw new Error('two-point fit')
+  // A 15 m/s burst (faster than Bolt + 3 km/h) breaks the effort: no 3 km record through it.
+  const burst: StreamPoint[] = [...steady(600, 4, 150)]
+  for (let t = 610; t <= 700; t += 10) burst.push(point(t, 2400 + 15 * (t - 600), 150, 15))
+  for (let t = 710; t <= 1300; t += 10) burst.push(point(t, 3900 + 4 * (t - 700), 150, 4))
+  const bursty = buildSpeedProfile([run('burst', recent, burst)], now).records.find((record) => record.meters === 1000)
+  // Without the cap, half a km at 15 m/s would make a 1 km at about 2:38/km. Only the 4 m/s running counts: 250 s/km.
+  if (!bursty || Math.abs(bursty.pace - 250) > 1) throw new Error(`burst pace ${bursty?.pace}`)
 }

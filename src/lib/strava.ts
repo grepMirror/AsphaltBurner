@@ -78,11 +78,25 @@ export function parseCsv(text: string): Record<string, string>[] {
   })
 }
 
+/** Lowercase, strip accents and typographic apostrophes so French and English labels compare equally. */
+function fold(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’‘`]/g, "'")
+    .toLowerCase()
+    .trim()
+}
+
 export function sportFromType(type: string): Sport {
-  const key = type.replace(/[\s_-]/g, '').toLowerCase()
+  const key = fold(type).replace(/[\s_'-]/g, '')
   if (RUN.has(key)) return 'run'
   if (SWIM.has(key)) return 'swim'
   if (RIDE.has(key)) return 'ride'
+  // French exports: "Course à pied", "Course sur sentier", "Randonnée", "Vélo", "Sortie à vélo gravel", "Natation"...
+  if (key.startsWith('course') || key.startsWith('randonnee')) return 'run'
+  if (key.startsWith('natation')) return 'swim'
+  if (key.startsWith('velo') || key.startsWith('sortieavelo') || key.startsWith('vtt') || key.startsWith('sortieenvtt')) return 'ride'
   return 'other'
 }
 
@@ -98,9 +112,36 @@ function nullableNumber(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const FRENCH_MONTHS: Record<string, number> = {
+  janv: 0, janvier: 0,
+  fevr: 1, fevrier: 1,
+  mars: 2,
+  avr: 3, avril: 3,
+  mai: 4,
+  juin: 5,
+  juil: 6, juillet: 6,
+  aout: 7,
+  sept: 8, septembre: 8,
+  oct: 9, octobre: 9,
+  nov: 10, novembre: 10,
+  dec: 11, decembre: 11,
+}
+
+/** French export dates look like "19 nov. 2026, 07:48:11". Strava exports are in UTC. */
+function parseFrenchDate(value: string): string | null {
+  const match = fold(value).match(/^(\d{1,2})\s+([a-z]+)\.?,?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (!match) return null
+  const month = FRENCH_MONTHS[match[2]]
+  if (month === undefined) return null
+  const time = Date.UTC(Number(match[3]), month, Number(match[1]), Number(match[4]), Number(match[5]), Number(match[6] ?? 0))
+  return Number.isNaN(time) ? null : new Date(time).toISOString()
+}
+
 function parseStravaDate(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
+  const french = parseFrenchDate(trimmed)
+  if (french) return french
   const parsed = Date.parse(trimmed)
   if (Number.isNaN(parsed)) return null
   return new Date(parsed).toISOString()
@@ -183,28 +224,52 @@ export function parseGpx(xml: string): TrackFile {
   return { track: downsample(track, 180), stream: thin(stream, 360) }
 }
 
+/** Column names per field, English first, then the French export. Compared accent- and case-insensitively. */
+const COLUMNS = {
+  date: ['Activity Date', "Date de l'activité"],
+  type: ['Activity Type', "Type d'activité"],
+  id: ['Activity ID', "ID de l'activité"],
+  name: ['Activity Name', "Nom de l'activité"],
+  moving: ['Moving Time', 'Durée de déplacement'],
+  elapsed: ['Elapsed Time', 'Temps écoulé'],
+  distance: ['Distance'],
+  elevation: ['Elevation Gain', 'Dénivelé positif'],
+  avgHr: ['Average Heart Rate', 'Fréquence cardiaque moyenne'],
+  file: ['Filename', 'Nom du fichier'],
+} as const
+
 function activitiesFromCsv(rows: Record<string, string>[]): Draft[] {
-  return rows.flatMap((row, index) => {
-    const date = parseStravaDate(row['Activity Date'] ?? '')
+  return rows.flatMap((raw, index) => {
+    const row = new Map<string, string>()
+    for (const [name, value] of Object.entries(raw)) row.set(fold(name), value)
+    const get = (names: readonly string[]): string => {
+      for (const name of names) {
+        const value = row.get(fold(name))
+        if (value?.trim()) return value
+      }
+      return ''
+    }
+
+    const date = parseStravaDate(get(COLUMNS.date))
     if (!date) return []
-    const type = (row['Activity Type'] || 'Workout').trim() || 'Workout'
-    const moving = numberFrom(row['Moving Time'])
-    const elapsed = numberFrom(row['Elapsed Time'])
+    const type = get(COLUMNS.type).trim() || 'Workout'
+    const moving = numberFrom(get(COLUMNS.moving))
+    const elapsed = numberFrom(get(COLUMNS.elapsed))
     return [
       {
-        id: (row['Activity ID'] || `row-${index + 1}`).trim(),
-        name: (row['Activity Name'] || 'Session').trim() || 'Session',
+        id: get(COLUMNS.id).trim() || `row-${index + 1}`,
+        name: get(COLUMNS.name).trim() || 'Session',
         type,
         sport: sportFromType(type),
         date,
         movingSec: moving || elapsed,
         elapsedSec: elapsed || moving,
-        distanceM: numberFrom(row.Distance),
-        elevationM: numberFrom(row['Elevation Gain']),
-        avgHr: nullableNumber(row['Average Heart Rate']),
+        distanceM: numberFrom(get(COLUMNS.distance)),
+        elevationM: numberFrom(get(COLUMNS.elevation)),
+        avgHr: nullableNumber(get(COLUMNS.avgHr)),
         track: [],
         stream: [],
-        file: (row.Filename || '').trim(),
+        file: get(COLUMNS.file).trim(),
       },
     ]
   })
