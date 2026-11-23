@@ -1,6 +1,6 @@
 import type { Activity, StreamPoint } from '../types'
 import { ZONE_BANDS, type ZoneStyle } from './load'
-import { DEFAULT_ZONES, zoneCutBpm, type HrMethod, type ZoneEdges } from './intensity'
+import { DEFAULT_HR_METHOD, DEFAULT_ZONES, zoneCutBpm, type HrMethod, type ZoneEdges } from './intensity'
 
 const BIN_KMH = 0.25
 const GAP_CAP_SEC = 180
@@ -296,7 +296,7 @@ export function buildHrBins(activities: Activity[]): HrBin[] {
   return bins
 }
 
-export function reserveCuts(maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = 'max'): number[] {
+export function reserveCuts(maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = DEFAULT_HR_METHOD): number[] {
   return zoneCutBpm(maxHr, zones, { restHr, method })
 }
 
@@ -314,7 +314,7 @@ export function styleKey(zone: number, style: ZoneStyle): string {
   return 'hard'
 }
 
-export function zoneSlices(bins: HrBin[], style: ZoneStyle, maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = 'max'): ZoneSlice[] {
+export function zoneSlices(bins: HrBin[], style: ZoneStyle, maxHr: number, restHr: number, zones: ZoneEdges = DEFAULT_ZONES, method: HrMethod = DEFAULT_HR_METHOD): ZoneSlice[] {
   const cuts = reserveCuts(maxHr, restHr, zones, method)
   const bands = ZONE_BANDS[style]
   const seconds = bands.map(() => 0)
@@ -412,7 +412,7 @@ if (entry?.endsWith('physiology.ts')) {
   if (slice(five, 'z1') !== 20 || slice(five, 'z3') !== 10 || slice(three, 'easy') !== 20 || slice(three, 'medium') !== 10) {
     throw new Error(`zones ${five.map((row) => row.seconds).join()} / ${three.map((row) => row.seconds).join()}`)
   }
-  const plain = zoneSlices(bins, '5', 200, 60)
+  const plain = zoneSlices(bins, '5', 200, 60, DEFAULT_ZONES, 'max')
   if (slice(plain, 'z3') !== 20 || slice(plain, 'z4') !== 10) throw new Error(`max zones ${plain.map((row) => row.seconds).join()}`)
   const now = 1_700_000_000_000
   const windows = paceWindows('90d', 'previous', now)

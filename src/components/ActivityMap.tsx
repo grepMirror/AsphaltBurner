@@ -1,6 +1,6 @@
 import L from 'leaflet'
 import { useEffect, useRef } from 'react'
-import { DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityOf, type HrMethod, type ZoneEdges } from '../lib/intensity'
+import { DEFAULT_HR_METHOD, DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityOf, type HrMethod, type ZoneEdges } from '../lib/intensity'
 import type { Activity } from '../types'
 
 export function ActivityMap({
@@ -9,7 +9,7 @@ export function ActivityMap({
   maxHr,
   split = DEFAULT_ZONES,
   restHr = DEFAULT_REST_HR,
-  method = 'max',
+  method = DEFAULT_HR_METHOD,
   onSelect,
 }: {
   activities: Activity[]

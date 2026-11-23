@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { formatDistance, formatDuration, formatPaceOrSpeed } from '../lib/format'
-import { DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityFromHeartRate, type HrMethod, type ZoneEdges } from '../lib/intensity'
+import { DEFAULT_HR_METHOD, DEFAULT_REST_HR, DEFAULT_ZONES, INTENSITY_COLOR, intensityFromHeartRate, type HrMethod, type ZoneEdges } from '../lib/intensity'
 import { deriveSamples, distanceSplits, formatPace, median, smooth, type DistanceSplit } from '../lib/series'
 import type { Activity } from '../types'
 import { CURSOR, GRID, SERIES, TICK } from './chartChrome'
@@ -26,7 +26,7 @@ export function SessionView({
   maxHr = null,
   split = DEFAULT_ZONES,
   restHr = DEFAULT_REST_HR,
-  method = 'max',
+  method = DEFAULT_HR_METHOD,
 }: {
   activity: Activity
   onBack: () => void
