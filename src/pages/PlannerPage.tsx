@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { PlanPicker } from '../components/PlanPicker'
-import { BlockTypesModal, TagPanel } from '../components/WeekTags'
-import { addKind, clearPlanTags, inkOn, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, type BlockBook, type BlockKind } from '../lib/blocks'
+import { BlockTypesModal } from '../components/WeekTags'
+import { addKind, clearPlanTags, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, weeksBetween, type BlockBook, type BlockKind } from '../lib/blocks'
 import { CheckIcon, SessionEditor, SessionViewer, TAG_COLOR, WorkoutStrip } from '../components/PlanSession'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -35,20 +35,17 @@ import type { Activity } from '../types'
 type Pane = 'week' | 'stats'
 type Open = { mode: 'edit' | 'view'; session: PlannedSession; isNew: boolean }
 
-/** Everything the week list needs to show block tags and to select weeks for tagging. */
+/** What the week list needs to show block tags, and to change them. */
 type Tagging = {
-  on: boolean
-  picked: ReadonlySet<string>
   /** Monday of week -> block kind id, for the active plan. */
   tags: Record<string, string>
   kinds: BlockKind[]
   /** Monday of the run day's week, if the plan has one. */
   raceWeek: string | null
-  /** Tag panel, shown at the top of the list while tagging. */
-  panel: ReactNode
-  /** Enter tagging mode, optionally with some weeks already selected. */
-  onStart: (weeks?: string[]) => void
-  onPick: (weeks: string[], on: boolean) => void
+  /** Open the block type window for these weeks. */
+  onTag: (weeks: string[]) => void
+  /** A block was stretched or shrunk: it covered `run` and now covers `weeks`. */
+  onStretch: (run: string[], weeks: string[], kindId: string) => void
 }
 
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
@@ -67,18 +64,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const [open, setOpen] = useState<Open | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [blocks, setBlocks] = useState(loadBlocks)
-  const [tagging, setTagging] = useState(false)
-  const [picked, setPicked] = useState<string[]>([])
-  const [typesOpen, setTypesOpen] = useState(false)
-
-  useEffect(() => {
-    if (!tagging || typesOpen) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') stopTagging()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [tagging, typesOpen])
+  const [typesFor, setTypesFor] = useState<string[] | null>(null)
 
   useEffect(() => {
     if (!calendarOpen) return
@@ -114,13 +100,11 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     changeBook(selectPlan(book, id))
     setOpen(null)
     setDetailId(null)
-    stopTagging()
   }
   const createPlan = (draft: PlanDraft) => {
     changeBook(addPlan(book, draft).book)
     setOpen(null)
     setDetailId(null)
-    stopTagging()
   }
   const deletePlan = (id: string) => {
     setSessionsOfAll(savePlan(sessionsOfAll.filter((session) => session.planId !== id)))
@@ -128,45 +112,21 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     changeBook(removePlan(book, id))
     setOpen(null)
     setDetailId(null)
-    stopTagging()
   }
 
   // Block tags of the active plan. A week without an entry has no tag.
   const tags = tagsOf(blocks, info.id)
-  const kinds = kindsOf(blocks)
   const raceWeek = info.raceDate ? weekOf(parseDay(info.raceDate)) : null
   const changeBlocks = (next: BlockBook) => setBlocks(saveBlocks(next))
-  const startTagging = (weeks: string[] = []) => {
-    setTagging(true)
-    setPicked(weeks)
+  const tagState: Tagging = {
+    tags,
+    kinds: kindsOf(blocks),
+    raceWeek,
+    onTag: setTypesFor,
+    onStretch: (run, weeks, kindId) => changeBlocks(tagWeeks(tagWeeks(blocks, info.id, run, null), info.id, weeks, kindId)),
   }
-  function stopTagging() {
-    setTagging(false)
-    setPicked([])
-    setTypesOpen(false)
-  }
-  const pickWeeks = (weeks: string[], on: boolean) =>
-    setPicked((current) => {
-      const next = new Set(current)
-      for (const item of weeks) {
-        if (on) next.add(item)
-        else next.delete(item)
-      }
-      return [...next].sort()
-    })
-  const kindsPicked = new Set<string | null>(picked.map((item) => tags[item] ?? null))
-  const panel = (
-    <TagPanel
-      kinds={kinds}
-      count={picked.length}
-      shared={kindsPicked.size === 1 ? ([...kindsPicked][0] ?? null) : null}
-      untagged={kindsPicked.size === 1 && kindsPicked.has(null)}
-      onApply={(kindId) => changeBlocks(tagWeeks(blocks, info.id, picked, kindId))}
-      onEditTypes={() => setTypesOpen(true)}
-      onDone={stopTagging}
-    />
-  )
-  const tagState: Tagging = { on: tagging, picked: new Set(picked), tags, kinds, raceWeek, panel, onStart: startTagging, onPick: pickWeeks }
+  const shared = new Set((typesFor ?? []).map((item) => tags[item] ?? null))
+
   const upsert = (session: PlannedSession) => commit(plan.some((item) => item.id === session.id) ? plan.map((item) => (item.id === session.id ? session : item)) : [...plan, session])
   const goWeek = (next: string, follow = true) => {
     setWeek(next)
@@ -249,10 +209,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
       <div className={`mx-auto flex w-full flex-col gap-6 ${pane === 'week' ? 'max-w-[1200px]' : 'max-w-3xl'}`}>
         <Panes
           pane={pane}
-          onPane={(next) => {
-            stopTagging()
-            setPane(next)
-          }}
+          onPane={setPane}
           picker={
             <PlanPicker
               book={book}
@@ -331,22 +288,27 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
           </div>
         </div>
       ) : null}
-      {typesOpen ? (
+      {typesFor ? (
         <BlockTypesModal
           book={blocks}
-          count={picked.length}
+          weeks={typesFor.length}
+          current={shared.size === 1 ? ([...shared][0] ?? null) : null}
+          onClear={typesFor.some((item) => tags[item]) ? () => {
+            changeBlocks(tagWeeks(blocks, info.id, typesFor, null))
+            setTypesFor(null)
+          } : null}
           onChoose={(kindId) => {
-            changeBlocks(tagWeeks(blocks, info.id, picked, kindId))
-            setTypesOpen(false)
+            changeBlocks(tagWeeks(blocks, info.id, typesFor, kindId))
+            setTypesFor(null)
           }}
           onCreate={(label, color) => {
             const made = addKind(blocks, label, color)
             if (made.id === null) return
-            changeBlocks(picked.length > 0 ? tagWeeks(made.book, info.id, picked, made.id) : made.book)
-            if (picked.length > 0) setTypesOpen(false)
+            changeBlocks(tagWeeks(made.book, info.id, typesFor, made.id))
+            setTypesFor(null)
           }}
           onRemove={(kindId) => changeBlocks(removeKind(blocks, kindId))}
-          onClose={() => setTypesOpen(false)}
+          onClose={() => setTypesFor(null)}
         />
       ) : null}
     </Frame>
@@ -619,6 +581,9 @@ function PlanStats({ plan, info }: { plan: PlannedSession[]; info: PlanInfo }) {
   )
 }
 
+/** A block being stretched: the weeks it had, and the weeks it covers right now. */
+type Stretch = { kind: string; edge: 'start' | 'end'; run: string[]; weeks: string[] }
+
 function MonthList({
   year,
   month,
@@ -637,72 +602,73 @@ function MonthList({
   onWeek: (week: string) => void
 }) {
   const next = addMonth(year, month, 1)
-  const visible = useMemo(() => [...weeksInMonth(year, month), ...weeksInMonth(next.year, next.month)], [year, month])
-  const anchor = useRef<string | null>(null)
-  // A pointer press already handled the selection, so the click that follows it must not toggle again.
-  const handled = useRef(false)
-  const picked = useRef(tagging.picked)
-  picked.current = tagging.picked
+  const rootRef = useRef<HTMLDivElement>(null)
+  const stretchRef = useRef<Stretch | null>(null)
+  const [stretch, setStretch] = useState<Stretch | null>(null)
 
-  const between = (from: string, to: string): string[] => {
-    const a = visible.indexOf(from)
-    const b = visible.indexOf(to)
-    return a < 0 || b < 0 ? [to] : visible.slice(Math.min(a, b), Math.max(a, b) + 1)
-  }
+  // While a block is stretched, the list shows the result before it is saved.
+  const tags = useMemo(() => {
+    if (!stretch) return tagging.tags
+    const shown = { ...tagging.tags }
+    for (const item of stretch.run) delete shown[item]
+    for (const item of stretch.weeks) shown[item] = stretch.kind
+    return shown
+  }, [stretch, tagging.tags])
 
-  // Press on a week: select it, then keep selecting (or unselecting) the weeks the pointer drags across.
-  const press = (target: string, event: ReactPointerEvent) => {
-    handled.current = true
-    if (event.shiftKey && anchor.current && anchor.current !== target) {
-      tagging.onPick(between(anchor.current, target), true)
-      return
-    }
-    const on = !picked.current.has(target)
-    tagging.onPick([target], on)
-    anchor.current = target
-    let last = target
-    const move = (moved: PointerEvent) => {
-      const found = document.elementFromPoint(moved.clientX, moved.clientY)?.closest<HTMLElement>('[data-week]')?.dataset.week
-      if (!found || found === last) return
-      tagging.onPick(between(last, found), on)
-      last = found
-    }
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-      window.removeEventListener('pointercancel', stop)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-    window.addEventListener('pointercancel', stop)
-  }
-  const rowPress = (target: string, event: ReactPointerEvent) => {
-    if (event.pointerType === 'mouse') press(target, event)
-    else handled.current = false
-  }
-  const handlePress = (target: string, event: ReactPointerEvent) => {
-    if (event.pointerType === 'mouse') return
-    event.stopPropagation()
-    press(target, event)
-  }
-  const click = (target: string, event: ReactMouseEvent) => {
-    if (handled.current && event.detail !== 0) {
-      handled.current = false
-      return
-    }
-    handled.current = false
-    if (event.shiftKey && anchor.current && anchor.current !== target) {
-      tagging.onPick(between(anchor.current, target), true)
-      return
-    }
-    anchor.current = target
-    tagging.onPick([target], !picked.current.has(target))
+  // The week nearest to a height on the screen. The pointer is on the rail, not on a row, while stretching.
+  const weekAt = (y: number): string | null => {
+    let best: string | null = null
+    let bestDistance = Infinity
+    rootRef.current?.querySelectorAll<HTMLElement>('[data-week]').forEach((row) => {
+      const box = row.getBoundingClientRect()
+      const distance = y < box.top ? box.top - y : y > box.bottom ? y - box.bottom : 0
+      if (distance < bestDistance) {
+        best = row.dataset.week ?? null
+        bestDistance = distance
+      }
+    })
+    return best
   }
 
-  const shared = { week, plan, tagging, press: rowPress, handle: handlePress, click, onWeek }
+  const begin = (kind: string, edge: 'start' | 'end', run: string[], event: ReactPointerEvent) => {
+    event.preventDefault()
+    // The root keeps the pointer even when the grip is redrawn under it.
+    rootRef.current?.setPointerCapture(event.pointerId)
+    const state: Stretch = { kind, edge, run, weeks: run }
+    stretchRef.current = state
+    setStretch(state)
+  }
+  const move = (event: ReactPointerEvent) => {
+    const current = stretchRef.current
+    const found = weekAt(event.clientY)
+    if (!current || !found) return
+    const first = current.run[0]
+    const last = current.run[current.run.length - 1]
+    // A block keeps at least one week: the edge cannot cross the other one.
+    const weeks = current.edge === 'start' ? weeksBetween(found < last ? found : last, last) : weeksBetween(first, found > first ? found : first)
+    if (weeks.join() === current.weeks.join()) return
+    const updated = { ...current, weeks }
+    stretchRef.current = updated
+    setStretch(updated)
+  }
+  const finish = (event: ReactPointerEvent, save: boolean) => {
+    const current = stretchRef.current
+    if (!current) return
+    stretchRef.current = null
+    setStretch(null)
+    if (rootRef.current?.hasPointerCapture(event.pointerId)) rootRef.current.releasePointerCapture(event.pointerId)
+    if (save && current.weeks.join() !== current.run.join()) tagging.onStretch(current.run, current.weeks, current.kind)
+  }
+
+  const shared = { week, plan, tagging, tags, stretch, onBegin: begin, onWeek }
   return (
-    <div className="flex flex-col gap-6">
-      {tagging.on ? tagging.panel : null}
+    <div
+      ref={rootRef}
+      className={`flex flex-col gap-6 ${stretch ? 'cursor-ns-resize select-none' : ''}`}
+      onPointerMove={stretch ? move : undefined}
+      onPointerUp={stretch ? (event) => finish(event, true) : undefined}
+      onPointerCancel={stretch ? (event) => finish(event, false) : undefined}
+    >
       <MonthPlan year={year} month={month} arrows onMonth={onMonth} {...shared} />
       <MonthPlan year={next.year} month={next.month} {...shared} />
     </div>
@@ -715,10 +681,10 @@ function MonthPlan({
   week,
   plan,
   tagging,
+  tags,
+  stretch,
   arrows = false,
-  press,
-  handle,
-  click,
+  onBegin,
   onMonth,
   onWeek,
 }: {
@@ -727,17 +693,17 @@ function MonthPlan({
   week: string
   plan: PlannedSession[]
   tagging: Tagging
+  tags: Record<string, string>
+  stretch: Stretch | null
   arrows?: boolean
-  press: (week: string, event: ReactPointerEvent) => void
-  handle: (week: string, event: ReactPointerEvent) => void
-  click: (week: string, event: ReactMouseEvent) => void
+  onBegin: (kind: string, edge: 'start' | 'end', run: string[], event: ReactPointerEvent) => void
   onMonth?: (delta: number) => void
   onWeek: (week: string) => void
 }) {
   const title = new Date(year, month, 1).toLocaleDateString('en-GB', { month: 'long' })
   const rows = weeksInMonth(year, month).map((monday) => ({
     monday,
-    kind: tagging.tags[monday] ?? null,
+    kind: tags[monday] ?? null,
     sessions: plan.filter((session) => session.week === monday && session.status !== 'cancelled'),
   }))
   // Consecutive weeks with the same block type share one rail.
@@ -754,15 +720,6 @@ function MonthPlan({
         <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{title}</h2>
         {arrows && onMonth ? (
           <div className="flex items-center gap-1">
-            {tagging.on ? null : (
-              <button
-                type="button"
-                onClick={() => tagging.onStart()}
-                className="mr-1 flex items-center gap-1.5 rounded-full border border-[#262C3B] px-2.5 py-1 text-xs font-semibold text-[#C5CAD3] hover:bg-white/5 hover:text-[#E8EAF0]"
-              >
-                <TagIcon /> Tag weeks
-              </button>
-            )}
             <NavButton label="Previous month" onClick={() => onMonth(-1)}>
               <Chevron left />
             </NavButton>
@@ -775,53 +732,42 @@ function MonthPlan({
       <div className="mt-3 flex flex-col gap-2">
         {groups.map((group) => {
           const kind = group.kind ? (kindById.get(group.kind) ?? null) : null
+          const first = group.rows[0].monday
+          const last = group.rows[group.rows.length - 1].monday
+          const run = kind ? runOf(tags, first) : []
           return (
-            <div key={group.rows[0].monday} className="flex items-stretch gap-2">
+            <div key={first} className="group/week flex items-stretch gap-2">
               {kind ? (
-                <button
-                  type="button"
-                  aria-label={`${kind.label} block: select its weeks`}
-                  title={`${kind.label} · select these weeks`}
-                  onClick={() => tagging.onStart(runOf(tagging.tags, group.rows[0].monday))}
-                  className="flex w-5 shrink-0 items-center justify-center overflow-hidden rounded-md transition-[filter] hover:brightness-110"
-                  style={{ background: kind.color, color: inkOn(kind.color) }}
-                >
-                  <span className="max-h-full rotate-180 overflow-hidden text-ellipsis whitespace-nowrap py-1 text-[9px] font-bold uppercase tracking-[0.08em] [writing-mode:vertical-rl]">{kind.label}</span>
-                </button>
+                <BlockRail
+                  kind={kind}
+                  active={stretch !== null && stretch.kind === kind.id && stretch.weeks.includes(first)}
+                  // A block that goes on in the other month has no grip on that side.
+                  canStart={run[0] === first}
+                  canEnd={run[run.length - 1] === last}
+                  onOpen={() => tagging.onTag(run)}
+                  onBegin={(edge, event) => onBegin(kind.id, edge, run, event)}
+                />
               ) : (
-                <span aria-hidden="true" className="w-5 shrink-0" />
+                <span className="grid w-5 shrink-0 place-items-center">
+                  <button
+                    type="button"
+                    aria-label={`Add a block type to ${weekRange(first)}`}
+                    title="Add a block type"
+                    onClick={() => tagging.onTag([first])}
+                    className="grid h-5 w-5 place-items-center rounded-md text-[#9AA3B5] opacity-0 transition-opacity hover:bg-white/5 hover:text-[#E8EAF0] focus-visible:opacity-100 group-hover/week:opacity-100 [@media(hover:none)]:opacity-40"
+                  >
+                    <TagIcon />
+                  </button>
+                </span>
               )}
               <ul className="flex min-w-0 flex-1 flex-col gap-2">
                 {group.rows.map((row) => {
                   const on = row.monday === week
-                  const chosen = tagging.picked.has(row.monday)
                   return (
                     <li key={row.monday} data-week={row.monday}>
-                      <button
-                        type="button"
-                        aria-pressed={tagging.on ? chosen : undefined}
-                        onPointerDown={tagging.on ? (event) => press(row.monday, event) : undefined}
-                        onClick={(event) => (tagging.on ? click(row.monday, event) : onWeek(row.monday))}
-                        className={`flex w-full items-center gap-3 text-left ${tagging.on ? 'select-none' : ''}`}
-                      >
-                        <span className={`flex w-[120px] shrink-0 items-center justify-between gap-1 text-xs leading-tight tabular-nums ${on && !tagging.on ? 'text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}>
-                          <span className="whitespace-nowrap">{weekRange(row.monday)}</span>
-                          {tagging.on ? (
-                            <span
-                              onPointerDown={(event) => handle(row.monday, event)}
-                              style={{ touchAction: 'none' }}
-                              className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${chosen ? 'border-[#E8EAF0] bg-[#E8EAF0] text-[#0B0D12]' : 'border-[#3A4150] text-transparent'}`}
-                              aria-hidden="true"
-                            >
-                              <CheckIcon />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span
-                          className={`flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${
-                            tagging.on ? (chosen ? 'border-[#9BB8F0] bg-[#9BB8F0]/10' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]') : on ? 'border-[#E8EAF0] bg-white/[0.04]' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]'
-                          }`}
-                        >
+                      <button type="button" onClick={() => onWeek(row.monday)} className="flex w-full items-center gap-3 text-left">
+                        <span className={`w-24 shrink-0 whitespace-nowrap text-xs leading-tight tabular-nums ${on ? 'text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}>{weekRange(row.monday)}</span>
+                        <span className={`flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${on ? 'border-[#E8EAF0] bg-white/[0.04]' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]'}`}>
                           {row.sessions.map((session) => (
                             <span key={session.id} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: TAG_COLOR[session.tag], color: '#0B0D12' }}>
                               {tagOf(session.tag).label}
@@ -842,9 +788,63 @@ function MonthPlan({
   )
 }
 
+/**
+ * Rail of a block: the type name and a line, both in the type's color.
+ * Hovering tints it and shows a grip at each end: drag a grip to stretch the block over more weeks, or to shrink it.
+ * Clicking it opens the block type window for the whole block.
+ */
+function BlockRail({
+  kind,
+  active,
+  canStart,
+  canEnd,
+  onOpen,
+  onBegin,
+}: {
+  kind: BlockKind
+  active: boolean
+  canStart: boolean
+  canEnd: boolean
+  onOpen: () => void
+  onBegin: (edge: 'start' | 'end', event: ReactPointerEvent) => void
+}) {
+  const grip = (edge: 'start' | 'end') => (
+    <span
+      title="Drag to stretch the block"
+      onPointerDown={(event) => onBegin(edge, event)}
+      style={{ touchAction: 'none' }}
+      className={`absolute -inset-x-1 z-10 flex h-4 cursor-ns-resize items-center justify-center transition-opacity ${edge === 'start' ? '-top-2' : '-bottom-2'} ${active ? 'opacity-100' : 'opacity-0 group-hover/rail:opacity-100 [@media(hover:none)]:opacity-70'}`}
+    >
+      <span className="h-1 w-3.5 rounded-full" style={{ background: kind.color }} />
+    </span>
+  )
+  return (
+    // Everything inside is absolute: the rail is exactly as tall as the weeks it covers, whatever the label length.
+    <div className="group/rail relative w-5 shrink-0">
+      <button
+        type="button"
+        aria-label={`${kind.label} block: change its type`}
+        title={`${kind.label} · click to change, drag an end to stretch`}
+        onClick={onOpen}
+        className="absolute inset-0 overflow-hidden rounded-md outline-none focus-visible:ring-1 focus-visible:ring-white/40"
+      >
+        <span aria-hidden="true" className={`absolute inset-0 rounded-md transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover/rail:opacity-100'}`} style={{ background: `${kind.color}22` }} />
+        <span aria-hidden="true" className="absolute inset-y-0 right-0.5 w-0.5 rounded-full" style={{ background: kind.color }} />
+        <span className="absolute inset-y-0 left-0 right-1.5 flex items-center justify-center overflow-hidden py-1">
+          <span className="max-h-full rotate-180 overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.08em] [writing-mode:vertical-rl]" style={{ color: kind.color }}>
+            {kind.label}
+          </span>
+        </span>
+      </button>
+      {canStart ? grip('start') : null}
+      {canEnd ? grip('end') : null}
+    </div>
+  )
+}
+
 function TagIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2.5 8.2V3.4a.9.9 0 0 1 .9-.9h4.8l5.3 5.3a.9.9 0 0 1 0 1.3l-4.5 4.5a.9.9 0 0 1-1.3 0L2.5 8.2Z" />
       <circle cx="5.7" cy="5.7" r="0.9" />
     </svg>

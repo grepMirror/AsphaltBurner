@@ -1,95 +1,28 @@
 import { useId, useState, type FormEvent } from 'react'
-import { KIND_LABEL_MAX, SWATCHES, inkOn, isHex, kindNameTaken, kindsOf, weeksUsing, type BlockBook, type BlockKind } from '../lib/blocks'
+import { KIND_LABEL_MAX, SWATCHES, inkOn, isHex, kindNameTaken, kindsOf, weeksUsing, type BlockBook } from '../lib/blocks'
 import { Modal } from './Modal'
 
 /**
- * Shown above the week list while weeks are being tagged.
- * Chips apply a block type to the selected weeks at once; the pencil opens the block types window.
+ * Choose the block type of some weeks, or make your own with a name and a color.
+ * Opened from the tag icon of a week, or from the rail of a block.
  */
-export function TagPanel({
-  kinds,
-  count,
-  shared,
-  untagged,
-  onApply,
-  onEditTypes,
-  onDone,
-}: {
-  kinds: BlockKind[]
-  count: number
-  /** Kind that every selected week carries, if they all carry the same one. */
-  shared: string | null
-  /** Every selected week has no tag. */
-  untagged: boolean
-  onApply: (kindId: string | null) => void
-  onEditTypes: () => void
-  onDone: () => void
-}) {
-  const none = count === 0
-  return (
-    <section aria-label="Tag weeks" className="rounded-2xl border border-[#2A3140] bg-[#12161E] p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-[#E8EAF0]" aria-live="polite">
-          {none ? 'Tag weeks' : `${count} ${count === 1 ? 'week' : 'weeks'} selected`}
-        </p>
-        <button type="button" onClick={onDone} className="rounded-full bg-[#E8EAF0] px-3.5 py-1.5 text-xs font-semibold text-[#0B0D12] hover:bg-white">
-          Done
-        </button>
-      </div>
-      <p className="mt-1 text-xs leading-relaxed text-[#9AA3B5]">{none ? 'Tap weeks to select them, or drag across several. Shift-click selects a range.' : 'Choose a block type for the selected weeks.'}</p>
-      <div role="group" aria-label="Block type" className="mt-3 flex flex-wrap gap-1.5">
-        {kinds.map((kind) => {
-          const on = shared === kind.id
-          return (
-            <button
-              key={kind.id}
-              type="button"
-              disabled={none}
-              aria-pressed={on}
-              onClick={() => onApply(kind.id)}
-              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${on ? 'text-[#0B0D12]' : 'border-[#262C3B] text-[#E8EAF0] enabled:hover:bg-white/5'}`}
-              style={on ? { background: kind.color, borderColor: kind.color, color: inkOn(kind.color) } : undefined}
-            >
-              {on ? null : <span className="h-2 w-2 rounded-full" style={{ background: kind.color }} />}
-              {kind.label}
-            </button>
-          )
-        })}
-        <button
-          type="button"
-          disabled={none}
-          aria-pressed={!none && untagged}
-          onClick={() => onApply(null)}
-          className={`rounded-full border border-dashed px-2.5 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${!none && untagged ? 'border-[#E8EAF0] text-[#E8EAF0]' : 'border-[#3A4150] text-[#9AA3B5] enabled:hover:text-[#E8EAF0]'}`}
-        >
-          No tag
-        </button>
-        <button
-          type="button"
-          aria-label="Edit block types"
-          title="Edit block types"
-          onClick={onEditTypes}
-          className="grid h-7 w-7 place-items-center rounded-full border border-[#262C3B] text-[#9AA3B5] hover:bg-white/5 hover:text-[#E8EAF0]"
-        >
-          <PencilIcon />
-        </button>
-      </div>
-    </section>
-  )
-}
-
-/** Choose a block type for the selection, or make your own with a name and a color. */
 export function BlockTypesModal({
   book,
-  count,
+  weeks,
+  current,
   onChoose,
+  onClear,
   onCreate,
   onRemove,
   onClose,
 }: {
   book: BlockBook
-  /** Weeks that are selected right now. A type can only be applied when there are some. */
-  count: number
+  /** Weeks the type will apply to. */
+  weeks: number
+  /** Type that all these weeks already have, if they share one. `null` when they differ or have none. */
+  current: string | null
+  /** Set when at least one of the weeks has a tag, so there is something to remove. */
+  onClear: (() => void) | null
   onChoose: (kindId: string) => void
   onCreate: (label: string, color: string) => void
   onRemove: (kindId: string) => void
@@ -100,7 +33,6 @@ export function BlockTypesModal({
   const [color, setColor] = useState(SWATCHES[5])
   const [asking, setAsking] = useState<string | null>(null)
   const taken = label.trim() !== '' && kindNameTaken(book, label)
-  const canApply = count > 0
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -110,10 +42,8 @@ export function BlockTypesModal({
   }
 
   return (
-    <Modal title="Block types" onClose={onClose}>
-      <p className="text-xs leading-relaxed text-[#9AA3B5]">
-        {canApply ? `Choose a type for the ${count} selected ${count === 1 ? 'week' : 'weeks'}.` : 'Select weeks in the list to apply a type. You can still make your own here.'}
-      </p>
+    <Modal title="Block type" onClose={onClose}>
+      <p className="text-xs leading-relaxed text-[#9AA3B5]">{weeks === 1 ? 'Choose a type for this week.' : `Choose a type for these ${weeks} weeks.`}</p>
       <ul className="mt-3 flex flex-col gap-1">
         {kindsOf(book).map((kind) => {
           const used = kind.custom ? weeksUsing(book, kind.id) : 0
@@ -145,13 +75,16 @@ export function BlockTypesModal({
                 <>
                   <button
                     type="button"
-                    disabled={!canApply}
+                    aria-current={current === kind.id ? 'true' : undefined}
                     onClick={() => onChoose(kind.id)}
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left enabled:hover:bg-white/5 disabled:cursor-default"
+                    className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/5 ${current === kind.id ? 'bg-white/[0.04]' : ''}`}
                   >
                     <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ background: kind.color }} />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#E8EAF0]">{kind.label}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: kind.color }}>
+                      {kind.label}
+                    </span>
                     {kind.custom ? <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-[#5A6275]">Custom</span> : null}
+                    {current === kind.id ? <CheckMark /> : null}
                   </button>
                   {kind.custom ? (
                     <button
@@ -169,6 +102,14 @@ export function BlockTypesModal({
             </li>
           )
         })}
+        {onClear ? (
+          <li>
+            <button type="button" onClick={onClear} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-[#9AA3B5] hover:bg-white/5 hover:text-[#E8EAF0]">
+              <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-dashed border-[#4A5264]" />
+              Remove tag
+            </button>
+          </li>
+        ) : null}
       </ul>
 
       <form onSubmit={submit} className="mt-4 border-t border-[#1E2330] pt-4">
@@ -221,7 +162,7 @@ export function BlockTypesModal({
         </div>
         <div className="mt-4 flex justify-end">
           <button type="submit" disabled={label.trim() === '' || taken} className="rounded-full bg-[#E8EAF0] px-5 py-2.5 text-sm font-semibold text-[#0B0D12] enabled:hover:bg-white disabled:opacity-40">
-            {canApply ? `Create and apply` : 'Create type'}
+            Create and apply
           </button>
         </div>
       </form>
@@ -229,11 +170,10 @@ export function BlockTypesModal({
   )
 }
 
-function PencilIcon() {
+function CheckMark() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.8 13.2 3.4 10 10.8 2.6a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2L6 12.6l-3.2.6Z" />
-      <path d="m9.6 3.8 2.6 2.6" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#9DDBC0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+      <path d="m2.8 7.4 2.6 2.6 5.8-6" />
     </svg>
   )
 }
