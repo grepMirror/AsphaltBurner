@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { ContextMenu, menuPoint } from '../components/ContextMenu'
 import { PlanPicker } from '../components/PlanPicker'
 import { BlockTypesModal } from '../components/WeekTags'
 import { addKind, clearPlanTags, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, weeksBetween, type BlockBook, type BlockKind } from '../lib/blocks'
@@ -13,7 +13,6 @@ import { zoneCutBpm, type HrMethod, type ZoneEdges } from '../lib/intensity'
 import { buildPaceCost } from '../lib/physiology'
 import {
   blocksSummary,
-  climbRatio,
   dailyKm,
   isSimple,
   loadPlan,
@@ -89,7 +88,6 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     return zone1Pace(buildPaceCost(recent).points, zoneCutBpm(maxHr, split, { restHr, method })[0])
   }, [ready, activities, maxHr, restHr, method, split])
   const kmh = pace?.mid ?? null
-  const climb = useMemo(() => (ready ? climbRatio(activities) : null), [ready, activities])
   const byId = useMemo(() => new Map(activities.map((activity) => [activity.id, activity])), [activities])
 
   // Every tab reads the active plan. The other plans' sessions are kept untouched in storage.
@@ -202,7 +200,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const sessions = plan.filter((session) => session.week === week)
   const linked = new Set(plan.map((session) => session.activityId).filter((id): id is string => id !== null))
   const free = weekRuns(activities, week).filter((run) => !linked.has(run.id))
-  const facts = weekFacts(plan, week, kmh, climb, activities)
+  const facts = weekFacts(plan, week, kmh, activities)
 
   const pickWeek = (next: string) => {
     goWeek(next, false)
@@ -257,6 +255,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                     onComplete={(activityId) => upsert({ ...session, status: 'done', activityId })}
                     onDelete={() => commit(plan.filter((item) => item.id !== session.id))}
                     onRestore={() => upsert({ ...session, status: 'planned' })}
+                    onDetach={() => upsert({ ...session, status: 'planned', activityId: null })}
                   />
                 ))}
                 {free.map((run) => (
@@ -416,9 +415,9 @@ function WeekKpis({ facts }: { facts: WeekFacts }) {
   const tone = pct == null || pct === 0 ? '#9AA3B5' : pct > 0 ? '#9DDBC0' : '#E7A3A3'
   return (
     <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
-      <Kpi label="Distance" value={facts.meters == null ? '—' : `${facts.count > 0 ? '≈ ' : ''}${formatDistance(facts.meters)}`} />
+      <Kpi label="Distance" value={facts.meters == null ? '—' : `${facts.estimated ? '≈ ' : ''}${formatDistance(facts.meters)}`} />
       <Kpi label="Time" value={facts.seconds == null ? '—' : formatDuration(facts.seconds)} />
-      <Kpi label="Elevation" value={facts.elevationM == null ? '—' : `≈ ${Math.round(facts.elevationM).toLocaleString('en-US')} m`} />
+      <Kpi label="Elevation" value={`${Math.round(facts.elevationM).toLocaleString('en-US')} m`} />
       <Kpi label="Hard" value={String(facts.hard)} />
       <div className="flex flex-col">
         <dt className="text-[10px] uppercase tracking-[0.12em] text-[#9AA3B5]">{facts.deltaOf === 'time' ? 'Time vs last wk' : 'Vs last week'}</dt>
@@ -448,6 +447,7 @@ function SessionRow({
   onComplete,
   onDelete,
   onRestore,
+  onDetach,
 }: {
   session: PlannedSession
   kmh: number | null
@@ -457,8 +457,11 @@ function SessionRow({
   onComplete: (activityId: string | null) => void
   onDelete: () => void
   onRestore: () => void
+  /** Back to planned, without the run. */
+  onDetach: () => void
 }) {
   const [linking, setLinking] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const color = TAG_COLOR[session.tag]
   const totals = totalsText(session.blocks, session.tag, kmh)
   const done = session.status === 'done'
@@ -490,10 +493,24 @@ function SessionRow({
         </button>
         <div className="flex shrink-0 items-center gap-1 px-4 pb-3 sm:pb-0 sm:pl-0 sm:pr-3">
           {done ? (
-            <span className="flex items-center gap-1.5 rounded-full bg-[#9DDBC0]/10 px-3 py-1.5 text-xs font-semibold text-[#9DDBC0]">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menu !== null}
+              title={activity ? 'Right-click to detach the run from this session' : 'Right-click to mark as planned again'}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect()
+                setMenu({ x: box.left, y: box.bottom + 4 })
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setMenu(menuPoint(event, event.currentTarget))
+              }}
+              className="flex select-none items-center gap-1.5 rounded-full bg-[#9DDBC0]/10 px-3 py-1.5 text-xs font-semibold text-[#9DDBC0] hover:bg-[#9DDBC0]/15 [-webkit-touch-callout:none]"
+            >
               <CheckIcon />
               Completed
-            </span>
+            </button>
           ) : cancelled ? (
             <button type="button" onClick={onRestore} className="rounded-full px-3 py-1.5 text-xs font-semibold text-[#C5CAD3] hover:bg-white/5">
               Restore
@@ -513,6 +530,15 @@ function SessionRow({
           </button>
         </div>
       </div>
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label="Completed session"
+          onClose={() => setMenu(null)}
+          items={[{ label: activity ? 'Detach from run' : 'Mark as planned', icon: <UnlinkIcon />, onSelect: onDetach }]}
+        />
+      ) : null}
       {linking && !done && !cancelled ? (
         <div className="border-t border-[#1E2330] px-4 py-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9AA3B5]">Link a run from this week</p>
@@ -821,21 +847,6 @@ function BlockRail({
   onBegin: (edge: 'start' | 'end', event: ReactPointerEvent) => void
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close()
-    }
-    document.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
-    }
-  }, [menu])
   const grip = (edge: 'start' | 'end') => (
     <span
       title="Drag to stretch the block"
@@ -856,10 +867,7 @@ function BlockRail({
         onClick={onOpen}
         onContextMenu={(event) => {
           event.preventDefault()
-          // From the keyboard the event has no position: open the menu under the rail.
-          const box = event.currentTarget.getBoundingClientRect()
-          const fromKeyboard = event.clientX === 0 && event.clientY === 0
-          setMenu({ x: fromKeyboard ? box.right : event.clientX, y: fromKeyboard ? box.bottom : event.clientY })
+          setMenu(menuPoint(event, event.currentTarget))
         }}
         className="absolute inset-0 overflow-hidden rounded-md outline-none focus-visible:ring-1 focus-visible:ring-white/40"
       >
@@ -873,37 +881,15 @@ function BlockRail({
       </button>
       {canStart ? grip('start') : null}
       {canEnd ? grip('end') : null}
-      {menu
-        ? // Portal: the list sits in a sticky column, a fixed menu must be placed against the screen.
-          createPortal(
-            <>
-              <div className="fixed inset-0 z-40" onPointerDown={() => setMenu(null)} onContextMenu={(event) => event.preventDefault()} />
-              <div
-                role="menu"
-                aria-label={`${kind.label} block`}
-                className="fixed z-50 w-56 rounded-xl border border-[#1E2330] bg-[#10131A] p-1 shadow-xl"
-                style={{ left: Math.min(menu.x, window.innerWidth - 232), top: Math.min(menu.y, window.innerHeight - 100) }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  autoFocus
-                  onClick={() => {
-                    setMenu(null)
-                    onDelete()
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-[#E7A3A3] hover:bg-white/5"
-                >
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3.5 4.5h9M6.2 4.4V3.2h3.6v1.2M4.4 4.5l.5 8.2h6.2l.5-8.2" />
-                  </svg>
-                  Delete tag · {weeks} {weeks === 1 ? 'week' : 'weeks'}
-                </button>
-              </div>
-            </>,
-            document.body,
-          )
-        : null}
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={`${kind.label} block`}
+          onClose={() => setMenu(null)}
+          items={[{ label: `Delete tag · ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`, icon: <BinIcon />, danger: true, onSelect: onDelete }]}
+        />
+      ) : null}
     </div>
   )
 }
@@ -958,6 +944,14 @@ function NavButton({ label, onClick, children }: { label: string; onClick: () =>
     <button type="button" aria-label={label} onClick={onClick} className="cal-btn grid h-10 w-10 place-items-center rounded-xl border border-[#262C3B] bg-[#12161E] text-[#E8EAF0]">
       {children}
     </button>
+  )
+}
+
+function UnlinkIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6.6 9.4 5 11a2.1 2.1 0 0 1-3-3l2-2a2.1 2.1 0 0 1 3 0M9.4 6.6 11 5a2.1 2.1 0 0 1 3 3l-2 2a2.1 2.1 0 0 1-3 0M3 13 13 3" />
+    </svg>
   )
 }
 
