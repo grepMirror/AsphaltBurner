@@ -53,6 +53,7 @@ export function SessionEditor({
   isNew,
   plan,
   pace,
+  activities,
   onBack,
   onSave,
   onDelete,
@@ -61,6 +62,8 @@ export function SessionEditor({
   isNew: boolean
   plan: PlannedSession[]
   pace: ZonePace | null
+  /** Runs by id, to show what was really done last week. */
+  activities: ReadonlyMap<string, Activity>
   onBack: () => void
   onSave: (session: PlannedSession) => void
   onDelete: () => void
@@ -93,7 +96,7 @@ export function SessionEditor({
       </div>
       <WorkoutStrip blocks={draft.blocks} tag={draft.tag} kmh={kmh} className="mt-4" />
       {isSimple(draft.tag) ? (
-        <SimpleEditor draft={draft} plan={plan} pace={pace} onBlocks={setBlocks} />
+        <SimpleEditor draft={draft} plan={plan} pace={pace} activities={activities} onBlocks={setBlocks} />
       ) : (
         <WorkoutCreator draft={draft} plan={plan} pace={pace} onBlocks={setBlocks} />
       )}
@@ -208,12 +211,15 @@ function StepList({ block, tag }: { block: Block; tag: SessionTag }) {
   )
 }
 
-function SimpleEditor({ draft, plan, pace, onBlocks }: { draft: PlannedSession; plan: PlannedSession[]; pace: ZonePace | null; onBlocks: (blocks: Block[]) => void }) {
+function SimpleEditor({ draft, plan, pace, activities, onBlocks }: { draft: PlannedSession; plan: PlannedSession[]; pace: ZonePace | null; activities: ReadonlyMap<string, Activity>; onBlocks: (blocks: Block[]) => void }) {
   const kmh = pace?.mid ?? null
   const head = draft.blocks[0]?.steps[0]
   const current = head && !isBlock(head) ? head : step('active', 'time', 2700)
   const setStep = (next: Step) => onBlocks([{ repeat: 1, steps: [next] }])
-  const mean = lastWeekMean(plan, draft.week, draft.tag, kmh, draft.id)
+  const mean = lastWeekMean(plan, draft.week, draft.tag, kmh, draft.id, (id) => {
+    const run = activities.get(id)
+    return run ? { seconds: run.movingSec, meters: run.distanceM } : null
+  })
   const label = tagOf(draft.tag).label
   const byTime = current.by === 'time'
 
@@ -234,7 +240,8 @@ function SimpleEditor({ draft, plan, pace, onBlocks }: { draft: PlannedSession; 
             <>
               <span className="tabular-nums">avg {mean.seconds != null ? formatSpan(mean.seconds) : '—'}</span>
               <span className="text-[#9AA3B5]">
-                {mean.meters != null ? ` · ≈ ${formatDistance(mean.meters)}` : ''} · {mean.count} {mean.count === 1 ? 'session' : 'sessions'}
+                {mean.meters != null ? ` · ${mean.done === mean.count ? '' : '≈ '}${formatDistance(mean.meters)}` : ''} · {mean.count} {mean.count === 1 ? 'session' : 'sessions'}
+                {mean.done > 0 ? ` · ${mean.done === mean.count ? 'done' : `${mean.done} done`}` : mean.count > 0 ? ' · planned' : ''}
               </span>
             </>
           ) : (
@@ -647,7 +654,7 @@ function kindColor(kind: StepKind, tag: SessionTag): string {
 
 export function TagPicker({ value, onChange }: { value: SessionTag; onChange: (tag: SessionTag) => void }) {
   return (
-    <div role="radiogroup" aria-label="Session type" className="flex gap-2 overflow-x-auto pb-1">
+    <div role="radiogroup" aria-label="Session type" className="flex flex-wrap gap-2">
       {SESSION_TAGS.map((item) => {
         const on = value === item.id
         return (
@@ -657,7 +664,7 @@ export function TagPicker({ value, onChange }: { value: SessionTag; onChange: (t
             role="radio"
             aria-checked={on}
             onClick={() => onChange(item.id)}
-            className="shrink-0 rounded-full px-4 py-2 text-sm font-semibold"
+            className="rounded-full px-4 py-2 text-sm font-semibold"
             style={on ? { background: TAG_COLOR[item.id], color: '#0B0D12' } : { boxShadow: 'inset 0 0 0 1px #262C3B', color: '#C5CAD3' }}
           >
             {item.label}
