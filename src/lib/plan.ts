@@ -49,7 +49,10 @@ export type ZonePace = { low: number; mid: number; high: number }
 export type WeekFacts = {
   meters: number | null
   seconds: number | null
-  elevationM: number | null
+  /** Elevation of the confirmed runs. A planned session has none. */
+  elevationM: number
+  /** True while some counted session is only planned, so distance and time are not exact. */
+  estimated: boolean
   hard: number
   count: number
   done: number
@@ -59,7 +62,6 @@ export type WeekFacts = {
 
 const KEY = 'asphaltburner.plan.v2'
 const DAY = /^\d{4}-\d{2}-\d{2}$/
-const DAY_MS = 24 * 60 * 60 * 1000
 const HARD: ReadonlySet<SessionTag> = new Set(['vma', 'threshold', 'climb'])
 const KINDS: StepKind[] = ['warmup', 'active', 'recover']
 const SPORTS: PlanSport[] = ['run', 'swim', 'ride']
@@ -282,15 +284,29 @@ export function blockTotals(blocks: Block[], kmh: number | null): Totals {
   return { seconds: secondsKnown ? seconds : null, meters: metersKnown ? meters : null }
 }
 
-function sumTotals(sessions: PlannedSession[], kmh: number | null): Totals {
+/** The run of a session marked done, when the run is still around. */
+function realRun(session: PlannedSession, byId: ReadonlyMap<string, Activity>): Activity | null {
+  return session.status === 'done' && session.activityId ? (byId.get(session.activityId) ?? null) : null
+}
+
+/**
+ * A planned session counts for its plan and no elevation. A confirmed session counts for its run:
+ * distance, moving time and elevation. A confirmed session whose run is gone counts as planned.
+ */
+function sumTotals(sessions: PlannedSession[], kmh: number | null, byId: ReadonlyMap<string, Activity>): Totals & { elevationM: number; estimated: boolean } {
   let seconds: number | null = 0
   let meters: number | null = 0
+  let elevationM = 0
+  let estimated = false
   for (const session of sessions) {
-    const totals = blockTotals(session.blocks, kmh)
+    const run = realRun(session, byId)
+    const totals: Totals = run ? { seconds: run.movingSec, meters: run.distanceM } : blockTotals(session.blocks, kmh)
+    if (run) elevationM += Math.max(0, run.elevationM)
+    else estimated = true
     seconds = seconds === null || totals.seconds === null ? null : seconds + totals.seconds
     meters = meters === null || totals.meters === null ? null : meters + totals.meters
   }
-  return { seconds, meters }
+  return { seconds, meters, elevationM, estimated }
 }
 
 function live(plan: PlannedSession[], week: string): PlannedSession[] {
@@ -318,17 +334,22 @@ export function dailyKm(activities: Activity[], week: string): number[] {
   return km
 }
 
-/** Cancelled sessions are left out. Percent is versus last week's plan, or last week's runs when nothing was planned. */
-export function weekFacts(plan: PlannedSession[], week: string, kmh: number | null, climbPerMeter: number | null, activities: Activity[]): WeekFacts {
+/**
+ * Cancelled sessions are left out. A planned session adds its planned distance and time and no elevation,
+ * a confirmed one adds what its run did. Percent is versus last week counted the same way,
+ * or last week's runs when nothing was planned.
+ */
+export function weekFacts(plan: PlannedSession[], week: string, kmh: number | null, activities: Activity[]): WeekFacts {
+  const byId = new Map(activities.map((activity) => [activity.id, activity]))
   const sessions = live(plan, week)
-  const totals = sumTotals(sessions, kmh)
-  const elevationM = totals.meters != null && totals.meters > 0 && climbPerMeter != null ? totals.meters * climbPerMeter : null
+  const totals = sumTotals(sessions, kmh, byId)
+  const elevationM = totals.elevationM
   let delta: number | null = null
   let deltaOf: WeekFacts['deltaOf'] = null
   if (sessions.length > 0) {
     const previous = shiftWeek(week, -1)
     const prev = live(plan, previous)
-    const prevTotals = sumTotals(prev, kmh)
+    const prevTotals = sumTotals(prev, kmh, byId)
     if (totals.meters != null) {
       const base = prev.length > 0 ? prevTotals.meters : weekRuns(activities, previous).reduce((sum, run) => sum + run.distanceM, 0)
       if (base != null && base > 0) {
@@ -344,6 +365,7 @@ export function weekFacts(plan: PlannedSession[], week: string, kmh: number | nu
     meters: totals.meters,
     seconds: totals.seconds,
     elevationM,
+    estimated: totals.estimated,
     hard: sessions.filter((session) => isHard(session.tag)).length,
     count: sessions.length,
     done: sessions.filter((session) => session.status === 'done').length,
@@ -382,22 +404,6 @@ export function lastWeekMean(
     seconds: seconds == null ? null : seconds / list.length,
     meters: meters == null ? null : meters / list.length,
   }
-}
-
-/** Climb per metre, from runs in the last 90 days. Null under 5 km. ponytail: recent-run rate × estimated km, replace when a route exists. */
-export function climbRatio(activities: Activity[], now = Date.now()): number | null {
-  const cutoff = now - 90 * DAY_MS
-  let meters = 0
-  let climb = 0
-  for (const activity of activities) {
-    if (activity.sport !== 'run' || activity.distanceM < 1000) continue
-    const time = new Date(activity.date).getTime()
-    if (!Number.isFinite(time) || time < cutoff || time > now) continue
-    meters += activity.distanceM
-    climb += Math.max(0, activity.elevationM)
-  }
-  if (meters < 5000) return null
-  return climb / meters
 }
 
 /** "1:30" is 90 s, "45" is 45 min, "1:05:00" is 65 min. */
@@ -526,8 +532,8 @@ if (entry?.endsWith('plan.ts')) {
     activityId: null,
   })
   const plan = [session('1', '2026-11-16', 'ef', 30), session('2', '2026-11-16', 'vma', 30), session('3', '2026-11-16', 'threshold', 60, 'cancelled'), session('4', '2026-11-09', 'ef', 30)]
-  const both = weekFacts(plan, '2026-11-16', 12, 0.02, [])
-  if (!near(both.meters, 12000) || both.hard !== 1 || both.count !== 2 || !near(both.elevationM, 240) || !near(both.delta, 1) || both.deltaOf !== 'distance') throw new Error(`both ${JSON.stringify(both)}`)
+  const both = weekFacts(plan, '2026-11-16', 12, [])
+  if (!near(both.meters, 12000) || both.hard !== 1 || both.count !== 2 || both.elevationM !== 0 || !both.estimated || !near(both.delta, 1) || both.deltaOf !== 'distance') throw new Error(`both ${JSON.stringify(both)}`)
   const run = (date: string, distanceM: number, elevationM = 0): Activity => ({
     id: date,
     name: date,
@@ -542,9 +548,18 @@ if (entry?.endsWith('plan.ts')) {
     track: [],
     stream: [],
   })
-  const fallback = weekFacts([session('1', '2026-11-16', 'ef', 60)], '2026-11-16', 12, null, [run('2026-11-09T12:00:00', 10000)])
+  // a confirmed session counts for its run (distance, moving time, elevation), a planned one for its plan with no elevation
+  const doneRun = run('2026-11-17T08:00:00', 9000, 80)
+  const doneVma = { ...session('2', '2026-11-16', 'vma', 30), status: 'done' as const, activityId: doneRun.id }
+  const mixed = weekFacts([session('1', '2026-11-16', 'ef', 30), doneVma, session('4', '2026-11-09', 'ef', 30)], '2026-11-16', 12, [doneRun])
+  if (!near(mixed.meters, 15000) || !near(mixed.seconds, 2800) || !near(mixed.elevationM, 80) || !mixed.estimated || !near(mixed.delta, 1.5)) throw new Error(`mixed ${JSON.stringify(mixed)}`)
+  const allDone = weekFacts([doneVma], '2026-11-16', 12, [doneRun])
+  if (!near(allDone.meters, 9000) || !near(allDone.seconds, 1000) || allDone.estimated) throw new Error(`allDone ${JSON.stringify(allDone)}`)
+  const lost = weekFacts([doneVma], '2026-11-16', 12, [])
+  if (!near(lost.meters, 6000) || !near(lost.seconds, 1800) || lost.elevationM !== 0 || !lost.estimated) throw new Error(`lost ${JSON.stringify(lost)}`)
+  const fallback = weekFacts([session('1', '2026-11-16', 'ef', 60)], '2026-11-16', 12, [run('2026-11-09T12:00:00', 10000)])
   if (!near(fallback.delta, 0.2)) throw new Error(`fallback ${JSON.stringify(fallback)}`)
-  const timed = weekFacts([session('1', '2026-11-16', 'ef', 70), session('4', '2026-11-09', 'ef', 50)], '2026-11-16', null, null, [])
+  const timed = weekFacts([session('1', '2026-11-16', 'ef', 70), session('4', '2026-11-09', 'ef', 50)], '2026-11-16', null, [])
   if (timed.meters !== null || !near(timed.delta, 0.4) || timed.deltaOf !== 'time') throw new Error(`timed ${JSON.stringify(timed)}`)
   const mean = lastWeekMean([session('a', '2026-11-09', 'ef', 40), session('b', '2026-11-09', 'ef', 60), session('c', '2026-11-09', 'vma', 30)], '2026-11-16', 'ef', 12)
   if (!mean || mean.count !== 2 || mean.done !== 0 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
@@ -557,7 +572,4 @@ if (entry?.endsWith('plan.ts')) {
   if (!lostMean || lostMean.done !== 0 || !near(lostMean.seconds, 2400)) throw new Error(`lost mean ${JSON.stringify(lostMean)}`)
   const daily = dailyKm([run('2026-11-16T08:00:00', 5000), run('2026-11-16T18:00:00', 3000), run('2026-11-22T08:00:00', 10000), run('2026-11-23T08:00:00', 7000)], '2026-11-16')
   if (daily.join() !== '8,0,0,0,0,0,10') throw new Error(`daily ${daily.join()}`)
-  const now = new Date(2026, 10, 19, 12).getTime()
-  const ratio = climbRatio([run('2026-11-01T12:00:00', 10000, 200), run('2026-10-01T12:00:00', 8000, 80), run('2026-08-01T12:00:00', 20000, 900)], now)
-  if (!near(ratio, 280 / 18000)) throw new Error(`climb ${ratio}`)
 }
