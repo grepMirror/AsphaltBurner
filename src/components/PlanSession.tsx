@@ -20,6 +20,7 @@ import {
   stepLabel,
   tagOf,
   totalsText,
+  weekFacts,
   weekRuns,
   blocksSummary,
   type Block,
@@ -378,6 +379,8 @@ function WorkoutCreator({
   const color = TAG_COLOR[draft.tag]
   const previous = shiftWeek(draft.week, -1)
   const [showLast, setShowLast] = useState(false)
+  // The whole of last week, counted like the week list: the plan for a planned session, the run for a completed one.
+  const lastWeek = weekFacts(plan, previous, kmh, [...activities.values()])
   const shared = draft.tag === 'vma' || draft.tag === 'threshold'
   const templates = plan
     .filter((session) => session.week === previous && (shared ? session.tag === 'vma' || session.tag === 'threshold' : session.tag === draft.tag) && session.status !== 'cancelled' && session.id !== draft.id)
@@ -428,7 +431,17 @@ function WorkoutCreator({
 
   return (
     <>
-      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`} fold={{ open: showLast, onToggle: () => setShowLast((value) => !value) }}>
+      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`} fold={{ open: showLast, onToggle: () => setShowLast((value) => !value) }}
+        action={
+          lastWeek.count > 0 ? (
+            <span title="Everything of last week, planned and completed" className="text-xs font-semibold tabular-nums text-[#C5CAD3]">
+              {lastWeek.meters == null ? '—' : `${lastWeek.estimated ? '≈ ' : ''}${formatDistance(lastWeek.meters)}`}
+              <span className="px-1.5 text-[#5A6275]">·</span>
+              {lastWeek.seconds == null ? '—' : formatDuration(lastWeek.seconds)}
+            </span>
+          ) : null
+        }
+      >
         {templates.length === 0 ? (
           <p className="text-sm text-[#9AA3B5]">Nothing to reuse from last week.</p>
         ) : (
