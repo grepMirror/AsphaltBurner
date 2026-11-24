@@ -26,8 +26,13 @@ export function isBlock(item: Step | Block): item is Block {
 }
 export type SessionStatus = 'planned' | 'done' | 'cancelled'
 
+/** Sessions saved before plans existed have no plan id. They belong to the first plan. */
+export const DEFAULT_PLAN_ID = 'main'
+
 export type PlannedSession = {
   id: string
+  /** The plan this session belongs to. */
+  planId: string
   /** Monday of the week. A session floats inside its week, it has no day. */
   week: string
   sport: PlanSport
@@ -122,8 +127,8 @@ export function defaultBlocks(tag: SessionTag): Block[] {
   return simpleBlocks(tag === 'long' ? 5400 : 2700)
 }
 
-export function newSession(week: string, tag: SessionTag = 'ef'): PlannedSession {
-  return { id: newId(), week, sport: 'run', tag, blocks: defaultBlocks(tag), status: 'planned', activityId: null }
+export function newSession(week: string, tag: SessionTag = 'ef', planId: string = DEFAULT_PLAN_ID): PlannedSession {
+  return { id: newId(), planId, week, sport: 'run', tag, blocks: defaultBlocks(tag), status: 'planned', activityId: null }
 }
 
 export function cloneBlocks(blocks: Block[]): Block[] {
@@ -178,6 +183,7 @@ function cleanSession(raw: unknown): PlannedSession | null {
   const status = STATUSES.find((item) => item === row.status) ?? 'planned'
   return {
     id: row.id,
+    planId: typeof row.planId === 'string' && row.planId ? row.planId : DEFAULT_PLAN_ID,
     week: weekOf(parseDay(row.week)),
     sport: SPORTS.find((item) => item === row.sport) ?? 'run',
     tag,
@@ -478,12 +484,19 @@ if (entry?.endsWith('plan.ts')) {
     { id: 'd', week: '2026-11-16', tag: 'vma', blocks: [{ repeat: 99, steps: [{ kind: 'active', by: 'km', value: 400, pace: 10 }] }], status: 'planned', activityId: 'y' },
   ])
   const keptRep = kept[1]?.blocks[0]?.steps[0]
+  // Sessions saved before plans existed join the first plan; a saved plan id is kept.
+  const owned = normalizePlan([
+    { id: 'old', week: '2026-11-16', tag: 'ef', blocks: simpleBlocks(1800) },
+    { id: 'new', planId: 'race', week: '2026-11-16', tag: 'ef', blocks: simpleBlocks(1800) },
+  ])
+  if (owned[0].planId !== DEFAULT_PLAN_ID || owned[1].planId !== 'race') throw new Error(`plan ids ${JSON.stringify(owned.map((item) => item.planId))}`)
   if (kept.length !== 2 || kept[0].week !== '2026-11-16' || kept[0].activityId !== 'x' || kept[1].blocks[0].repeat !== 50 || !keptRep || isBlock(keptRep) || keptRep.pace !== null || kept[1].activityId !== null) {
     throw new Error(`norm ${JSON.stringify(kept)}`)
   }
 
   const session = (id: string, week: string, tag: SessionTag, minutes: number, status: SessionStatus = 'planned'): PlannedSession => ({
     id,
+    planId: DEFAULT_PLAN_ID,
     week,
     sport: 'run',
     tag,
