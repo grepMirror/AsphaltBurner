@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { PlanPicker } from '../components/PlanPicker'
+import { BlockTypesModal, TagPanel } from '../components/WeekTags'
+import { addKind, clearPlanTags, inkOn, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, type BlockBook, type BlockKind } from '../lib/blocks'
 import { CheckIcon, SessionEditor, SessionViewer, TAG_COLOR, WorkoutStrip } from '../components/PlanSession'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -33,6 +35,22 @@ import type { Activity } from '../types'
 type Pane = 'week' | 'stats'
 type Open = { mode: 'edit' | 'view'; session: PlannedSession; isNew: boolean }
 
+/** Everything the week list needs to show block tags and to select weeks for tagging. */
+type Tagging = {
+  on: boolean
+  picked: ReadonlySet<string>
+  /** Monday of week -> block kind id, for the active plan. */
+  tags: Record<string, string>
+  kinds: BlockKind[]
+  /** Monday of the run day's week, if the plan has one. */
+  raceWeek: string | null
+  /** Tag panel, shown at the top of the list while tagging. */
+  panel: ReactNode
+  /** Enter tagging mode, optionally with some weeks already selected. */
+  onStart: (weeks?: string[]) => void
+  onPick: (weeks: string[], on: boolean) => void
+}
+
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
@@ -48,6 +66,19 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [blocks, setBlocks] = useState(loadBlocks)
+  const [tagging, setTagging] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+  const [typesOpen, setTypesOpen] = useState(false)
+
+  useEffect(() => {
+    if (!tagging || typesOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') stopTagging()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [tagging, typesOpen])
 
   useEffect(() => {
     if (!calendarOpen) return
@@ -83,18 +114,59 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     changeBook(selectPlan(book, id))
     setOpen(null)
     setDetailId(null)
+    stopTagging()
   }
   const createPlan = (draft: PlanDraft) => {
     changeBook(addPlan(book, draft).book)
     setOpen(null)
     setDetailId(null)
+    stopTagging()
   }
   const deletePlan = (id: string) => {
     setSessionsOfAll(savePlan(sessionsOfAll.filter((session) => session.planId !== id)))
+    changeBlocks(clearPlanTags(blocks, id))
     changeBook(removePlan(book, id))
     setOpen(null)
     setDetailId(null)
+    stopTagging()
   }
+
+  // Block tags of the active plan. A week without an entry has no tag.
+  const tags = tagsOf(blocks, info.id)
+  const kinds = kindsOf(blocks)
+  const raceWeek = info.raceDate ? weekOf(parseDay(info.raceDate)) : null
+  const changeBlocks = (next: BlockBook) => setBlocks(saveBlocks(next))
+  const startTagging = (weeks: string[] = []) => {
+    setTagging(true)
+    setPicked(weeks)
+  }
+  function stopTagging() {
+    setTagging(false)
+    setPicked([])
+    setTypesOpen(false)
+  }
+  const pickWeeks = (weeks: string[], on: boolean) =>
+    setPicked((current) => {
+      const next = new Set(current)
+      for (const item of weeks) {
+        if (on) next.add(item)
+        else next.delete(item)
+      }
+      return [...next].sort()
+    })
+  const kindsPicked = new Set<string | null>(picked.map((item) => tags[item] ?? null))
+  const panel = (
+    <TagPanel
+      kinds={kinds}
+      count={picked.length}
+      shared={kindsPicked.size === 1 ? ([...kindsPicked][0] ?? null) : null}
+      untagged={kindsPicked.size === 1 && kindsPicked.has(null)}
+      onApply={(kindId) => changeBlocks(tagWeeks(blocks, info.id, picked, kindId))}
+      onEditTypes={() => setTypesOpen(true)}
+      onDone={stopTagging}
+    />
+  )
+  const tagState: Tagging = { on: tagging, picked: new Set(picked), tags, kinds, raceWeek, panel, onStart: startTagging, onPick: pickWeeks }
   const upsert = (session: PlannedSession) => commit(plan.some((item) => item.id === session.id) ? plan.map((item) => (item.id === session.id ? session : item)) : [...plan, session])
   const goWeek = (next: string, follow = true) => {
     setWeek(next)
@@ -177,7 +249,10 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
       <div className={`mx-auto flex w-full flex-col gap-6 ${pane === 'week' ? 'max-w-[1200px]' : 'max-w-3xl'}`}>
         <Panes
           pane={pane}
-          onPane={setPane}
+          onPane={(next) => {
+            stopTagging()
+            setPane(next)
+          }}
           picker={
             <PlanPicker
               book={book}
@@ -194,7 +269,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
         ) : (
           <div className="flex items-start gap-8">
             <aside className="sticky top-16 hidden w-[340px] shrink-0 lg:block">
-              <MonthList year={shown.year} month={shown.month} week={week} plan={plan} onMonth={shiftMonth} onWeek={pickWeek} />
+              <MonthList year={shown.year} month={shown.month} week={week} plan={plan} tagging={tagState} onMonth={shiftMonth} onWeek={pickWeek} />
             </aside>
             <div className="flex min-w-0 flex-1 flex-col gap-6">
             <WeekHeader week={week} km={dailyKm(activities, week)} onWeek={goWeek} onOpenCalendar={() => setCalendarOpen(true)} />
@@ -252,9 +327,27 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
       {calendarOpen && pane === 'week' ? (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center lg:hidden" onClick={() => setCalendarOpen(false)}>
           <div role="dialog" aria-label="Calendar" className="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-[22px] border border-[#1E2330] bg-[#10131A] p-4" onClick={(event) => event.stopPropagation()}>
-            <MonthList year={shown.year} month={shown.month} week={week} plan={plan} onMonth={shiftMonth} onWeek={pickWeek} />
+            <MonthList year={shown.year} month={shown.month} week={week} plan={plan} tagging={tagState} onMonth={shiftMonth} onWeek={pickWeek} />
           </div>
         </div>
+      ) : null}
+      {typesOpen ? (
+        <BlockTypesModal
+          book={blocks}
+          count={picked.length}
+          onChoose={(kindId) => {
+            changeBlocks(tagWeeks(blocks, info.id, picked, kindId))
+            setTypesOpen(false)
+          }}
+          onCreate={(label, color) => {
+            const made = addKind(blocks, label, color)
+            if (made.id === null) return
+            changeBlocks(picked.length > 0 ? tagWeeks(made.book, info.id, picked, made.id) : made.book)
+            if (picked.length > 0) setTypesOpen(false)
+          }}
+          onRemove={(kindId) => changeBlocks(removeKind(blocks, kindId))}
+          onClose={() => setTypesOpen(false)}
+        />
       ) : null}
     </Frame>
   )
@@ -526,12 +619,92 @@ function PlanStats({ plan, info }: { plan: PlannedSession[]; info: PlanInfo }) {
   )
 }
 
-function MonthList({ year, month, week, plan, onMonth, onWeek }: { year: number; month: number; week: string; plan: PlannedSession[]; onMonth: (delta: number) => void; onWeek: (week: string) => void }) {
+function MonthList({
+  year,
+  month,
+  week,
+  plan,
+  tagging,
+  onMonth,
+  onWeek,
+}: {
+  year: number
+  month: number
+  week: string
+  plan: PlannedSession[]
+  tagging: Tagging
+  onMonth: (delta: number) => void
+  onWeek: (week: string) => void
+}) {
   const next = addMonth(year, month, 1)
+  const visible = useMemo(() => [...weeksInMonth(year, month), ...weeksInMonth(next.year, next.month)], [year, month])
+  const anchor = useRef<string | null>(null)
+  // A pointer press already handled the selection, so the click that follows it must not toggle again.
+  const handled = useRef(false)
+  const picked = useRef(tagging.picked)
+  picked.current = tagging.picked
+
+  const between = (from: string, to: string): string[] => {
+    const a = visible.indexOf(from)
+    const b = visible.indexOf(to)
+    return a < 0 || b < 0 ? [to] : visible.slice(Math.min(a, b), Math.max(a, b) + 1)
+  }
+
+  // Press on a week: select it, then keep selecting (or unselecting) the weeks the pointer drags across.
+  const press = (target: string, event: ReactPointerEvent) => {
+    handled.current = true
+    if (event.shiftKey && anchor.current && anchor.current !== target) {
+      tagging.onPick(between(anchor.current, target), true)
+      return
+    }
+    const on = !picked.current.has(target)
+    tagging.onPick([target], on)
+    anchor.current = target
+    let last = target
+    const move = (moved: PointerEvent) => {
+      const found = document.elementFromPoint(moved.clientX, moved.clientY)?.closest<HTMLElement>('[data-week]')?.dataset.week
+      if (!found || found === last) return
+      tagging.onPick(between(last, found), on)
+      last = found
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
+  const rowPress = (target: string, event: ReactPointerEvent) => {
+    if (event.pointerType === 'mouse') press(target, event)
+    else handled.current = false
+  }
+  const handlePress = (target: string, event: ReactPointerEvent) => {
+    if (event.pointerType === 'mouse') return
+    event.stopPropagation()
+    press(target, event)
+  }
+  const click = (target: string, event: ReactMouseEvent) => {
+    if (handled.current && event.detail !== 0) {
+      handled.current = false
+      return
+    }
+    handled.current = false
+    if (event.shiftKey && anchor.current && anchor.current !== target) {
+      tagging.onPick(between(anchor.current, target), true)
+      return
+    }
+    anchor.current = target
+    tagging.onPick([target], !picked.current.has(target))
+  }
+
+  const shared = { week, plan, tagging, press: rowPress, handle: handlePress, click, onWeek }
   return (
     <div className="flex flex-col gap-6">
-      <MonthPlan year={year} month={month} week={week} plan={plan} arrows onMonth={onMonth} onWeek={onWeek} />
-      <MonthPlan year={next.year} month={next.month} week={week} plan={plan} onWeek={onWeek} />
+      {tagging.on ? tagging.panel : null}
+      <MonthPlan year={year} month={month} arrows onMonth={onMonth} {...shared} />
+      <MonthPlan year={next.year} month={next.month} {...shared} />
     </div>
   )
 }
@@ -541,7 +714,11 @@ function MonthPlan({
   month,
   week,
   plan,
+  tagging,
   arrows = false,
+  press,
+  handle,
+  click,
   onMonth,
   onWeek,
 }: {
@@ -549,18 +726,43 @@ function MonthPlan({
   month: number
   week: string
   plan: PlannedSession[]
+  tagging: Tagging
   arrows?: boolean
+  press: (week: string, event: ReactPointerEvent) => void
+  handle: (week: string, event: ReactPointerEvent) => void
+  click: (week: string, event: ReactMouseEvent) => void
   onMonth?: (delta: number) => void
   onWeek: (week: string) => void
 }) {
   const title = new Date(year, month, 1).toLocaleDateString('en-GB', { month: 'long' })
-  const rows = weeksInMonth(year, month).map((monday) => ({ monday, sessions: plan.filter((session) => session.week === monday && session.status !== 'cancelled') }))
+  const rows = weeksInMonth(year, month).map((monday) => ({
+    monday,
+    kind: tagging.tags[monday] ?? null,
+    sessions: plan.filter((session) => session.week === monday && session.status !== 'cancelled'),
+  }))
+  // Consecutive weeks with the same block type share one rail.
+  const groups: { kind: string | null; rows: typeof rows }[] = []
+  for (const row of rows) {
+    const last = groups[groups.length - 1]
+    if (last && row.kind !== null && last.kind === row.kind) last.rows.push(row)
+    else groups.push({ kind: row.kind, rows: [row] })
+  }
+  const kindById = new Map(tagging.kinds.map((kind) => [kind.id, kind]))
   return (
     <section>
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{title}</h2>
         {arrows && onMonth ? (
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
+            {tagging.on ? null : (
+              <button
+                type="button"
+                onClick={() => tagging.onStart()}
+                className="mr-1 flex items-center gap-1.5 rounded-full border border-[#262C3B] px-2.5 py-1 text-xs font-semibold text-[#C5CAD3] hover:bg-white/5 hover:text-[#E8EAF0]"
+              >
+                <TagIcon /> Tag weeks
+              </button>
+            )}
             <NavButton label="Previous month" onClick={() => onMonth(-1)}>
               <Chevron left />
             </NavButton>
@@ -570,26 +772,82 @@ function MonthPlan({
           </div>
         ) : null}
       </div>
-      <ul className="mt-3 flex flex-col gap-2">
-          {rows.map((row) => {
-            const on = row.monday === week
-            return (
-              <li key={row.monday}>
-                <button type="button" onClick={() => onWeek(row.monday)} className="flex w-full items-center gap-3 text-left">
-                  <span className={`shrink-0 text-xs leading-tight tabular-nums ${on ? 'text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}>{weekRange(row.monday)}</span>
-                  <span className={`flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${on ? 'border-[#E8EAF0] bg-white/[0.04]' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]'}`}>
-                    {row.sessions.map((session) => (
-                      <span key={session.id} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: TAG_COLOR[session.tag], color: '#0B0D12' }}>
-                        {tagOf(session.tag).label}
-                      </span>
-                    ))}
-                  </span>
+      <div className="mt-3 flex flex-col gap-2">
+        {groups.map((group) => {
+          const kind = group.kind ? (kindById.get(group.kind) ?? null) : null
+          return (
+            <div key={group.rows[0].monday} className="flex items-stretch gap-2">
+              {kind ? (
+                <button
+                  type="button"
+                  aria-label={`${kind.label} block: select its weeks`}
+                  title={`${kind.label} · select these weeks`}
+                  onClick={() => tagging.onStart(runOf(tagging.tags, group.rows[0].monday))}
+                  className="flex w-5 shrink-0 items-center justify-center overflow-hidden rounded-md transition-[filter] hover:brightness-110"
+                  style={{ background: kind.color, color: inkOn(kind.color) }}
+                >
+                  <span className="max-h-full rotate-180 overflow-hidden text-ellipsis whitespace-nowrap py-1 text-[9px] font-bold uppercase tracking-[0.08em] [writing-mode:vertical-rl]">{kind.label}</span>
                 </button>
-              </li>
-            )
-          })}
-        </ul>
+              ) : (
+                <span aria-hidden="true" className="w-5 shrink-0" />
+              )}
+              <ul className="flex min-w-0 flex-1 flex-col gap-2">
+                {group.rows.map((row) => {
+                  const on = row.monday === week
+                  const chosen = tagging.picked.has(row.monday)
+                  return (
+                    <li key={row.monday} data-week={row.monday}>
+                      <button
+                        type="button"
+                        aria-pressed={tagging.on ? chosen : undefined}
+                        onPointerDown={tagging.on ? (event) => press(row.monday, event) : undefined}
+                        onClick={(event) => (tagging.on ? click(row.monday, event) : onWeek(row.monday))}
+                        className={`flex w-full items-center gap-3 text-left ${tagging.on ? 'select-none' : ''}`}
+                      >
+                        <span className={`flex w-[120px] shrink-0 items-center justify-between gap-1 text-xs leading-tight tabular-nums ${on && !tagging.on ? 'text-[#E8EAF0]' : 'text-[#9AA3B5]'}`}>
+                          <span className="whitespace-nowrap">{weekRange(row.monday)}</span>
+                          {tagging.on ? (
+                            <span
+                              onPointerDown={(event) => handle(row.monday, event)}
+                              style={{ touchAction: 'none' }}
+                              className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${chosen ? 'border-[#E8EAF0] bg-[#E8EAF0] text-[#0B0D12]' : 'border-[#3A4150] text-transparent'}`}
+                              aria-hidden="true"
+                            >
+                              <CheckIcon />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span
+                          className={`flex min-h-10 flex-1 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 ${
+                            tagging.on ? (chosen ? 'border-[#9BB8F0] bg-[#9BB8F0]/10' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]') : on ? 'border-[#E8EAF0] bg-white/[0.04]' : 'border-[#1E2330] bg-[#0F1218] hover:border-[#3A4150]'
+                          }`}
+                        >
+                          {row.sessions.map((session) => (
+                            <span key={session.id} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: TAG_COLOR[session.tag], color: '#0B0D12' }}>
+                              {tagOf(session.tag).label}
+                            </span>
+                          ))}
+                          {row.monday === tagging.raceWeek ? <span className="ml-auto rounded-full border border-[#E8EAF0]/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#E8EAF0]">Run day</span> : null}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
     </section>
+  )
+}
+
+function TagIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 8.2V3.4a.9.9 0 0 1 .9-.9h4.8l5.3 5.3a.9.9 0 0 1 0 1.3l-4.5 4.5a.9.9 0 0 1-1.3 0L2.5 8.2Z" />
+      <circle cx="5.7" cy="5.7" r="0.9" />
+    </svg>
   )
 }
 
