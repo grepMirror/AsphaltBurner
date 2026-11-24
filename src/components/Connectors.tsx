@@ -2,48 +2,25 @@ import { useEffect, useState } from 'react'
 import { useActivities } from '../lib/activities'
 import { backendOnline } from '../lib/garmin'
 
-/** Modal listing every connector. Garmin is the first card; more cards are added to this list. */
-export function ConnectorsModal({ onClose }: { onClose: () => void }) {
+/** Connectors of the active profile. Garmin is the first card; more cards are added to this list. */
+export function ConnectorsPanel() {
   const [online, setOnline] = useState<boolean | null>(null)
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
     let cancelled = false
     void backendOnline().then((ok) => {
       if (!cancelled) setOnline(ok)
     })
     return () => {
       cancelled = true
-      document.removeEventListener('keydown', onKey)
     }
-  }, [onClose])
+  }, [])
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Connectors"
-      className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#12161E] p-5 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">Connectors</h2>
-          <button type="button" aria-label="Close connectors" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:text-white">
-            ×
-          </button>
-        </div>
-        {online === false ? (
-          <p className="mt-3 text-xs text-red-200">Backend is not running. Connectors need it. Zip import still works.</p>
-        ) : null}
-        <div className="mt-4 space-y-3">
-          <GarminCard />
-        </div>
+    <div>
+      {online === false ? <p className="mb-3 text-xs text-red-200">Backend is not running. Connectors need it. Zip import still works.</p> : null}
+      <div className="space-y-3">
+        <GarminCard />
       </div>
     </div>
   )
@@ -55,7 +32,7 @@ function formatDay(day: string): string {
 }
 
 function GarminCard() {
-  const { garmin, garminSyncing, garminError, connectGarmin, syncGarmin, disconnectGarmin } = useActivities()
+  const { garmin, garminSyncing, garminBusy, garminError, connectGarmin, syncGarmin, disconnectGarmin } = useActivities()
   const [apiKey, setApiKey] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -98,11 +75,11 @@ function GarminCard() {
           <div className="flex gap-2 pt-1">
             <button
               type="button"
-              disabled={garminSyncing}
+              disabled={garminBusy}
               onClick={() => void syncGarmin()}
               className="rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 disabled:opacity-50"
             >
-              {garminSyncing ? 'Syncing…' : 'Sync now'}
+              {garminSyncing ? 'Syncing…' : garminBusy ? 'Another profile is syncing' : 'Sync now'}
             </button>
             <button type="button" onClick={() => void disconnectGarmin()} className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/70 hover:text-white">
               Disconnect

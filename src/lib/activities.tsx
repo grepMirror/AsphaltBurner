@@ -13,12 +13,18 @@ type ActivitiesContextValue = {
   error: string | null
   importFile: (file: File | undefined) => void
   clear: () => void
+  /** Garmin login of the active profile. */
   garmin: GarminState | null
+  /** The active profile is syncing. */
   garminSyncing: boolean
+  /** Some profile is syncing. Only one sync runs at a time. */
+  garminBusy: boolean
   garminError: string | null
   connectGarmin: (apiKey: string) => Promise<void>
   syncGarmin: () => Promise<void>
   disconnectGarmin: () => Promise<void>
+  /** Drop the Garmin login of a profile that is being deleted. */
+  forgetProfile: (profileId: string) => Promise<void>
 }
 
 const ActivitiesContext = createContext<ActivitiesContextValue | null>(null)
@@ -34,20 +40,29 @@ function zipDaysOf(activities: Activity[]): Set<string> {
   return days
 }
 
-export function ActivitiesProvider({ children }: { children: ReactNode }) {
+/**
+ * Activities are shared by every profile. The Garmin login is per profile:
+ * `profileId` picks the one that is loaded, shown and synced.
+ */
+export function ActivitiesProvider({ profileId, profileIds, children }: { profileId: string; profileIds: string[]; children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [activities, setActivities] = useState<Activity[]>([])
   const [report, setReport] = useState<ImportReport | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [garmin, setGarmin] = useState<GarminState | null>(null)
-  const [garminSyncing, setGarminSyncing] = useState(false)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
   const [garminError, setGarminError] = useState<string | null>(null)
 
   // Refs hold the latest values for async work (sync runs for minutes).
   const bundleRef = useRef<SavedBundle>({ activities: [], report: null })
   const garminRef = useRef<GarminState | null>(null)
-  const syncingRef = useRef(false)
+  const profileRef = useRef(profileId)
+  const profileIdsRef = useRef(profileIds)
+  const syncingRef = useRef<string | null>(null)
+  // Profiles whose login was removed while a sync was still running. Their progress is not saved again.
+  const droppedRef = useRef(new Set<string>())
+  profileIdsRef.current = profileIds
 
   const persist = useCallback(async (next: SavedBundle) => {
     bundleRef.current = next
@@ -56,52 +71,49 @@ export function ActivitiesProvider({ children }: { children: ReactNode }) {
     await saveBundle(next)
   }, [])
 
-  const saveGarminState = useCallback(async (next: GarminState) => {
-    if (!garminRef.current) return
-    garminRef.current = next
-    setGarmin(next)
-    await saveGarmin(next)
+  /** Saves the progress of one profile. The screen only follows it while that profile is the active one. */
+  const saveGarminState = useCallback(async (id: string, next: GarminState) => {
+    if (droppedRef.current.has(id)) return
+    if (profileRef.current === id) {
+      garminRef.current = next
+      setGarmin(next)
+    }
+    await saveGarmin(next, id)
   }, [])
 
   const runSync = useCallback(async () => {
+    const id = profileRef.current
     const state = garminRef.current
-    if (!state || syncingRef.current) return
-    syncingRef.current = true
-    setGarminSyncing(true)
+    if (!state || syncingRef.current !== null) return
+    syncingRef.current = id
+    setSyncingId(id)
     setGarminError(null)
     try {
       await runGarminSync(state, {
         zipDays: zipDaysOf(bundleRef.current.activities),
         known: new Set(bundleRef.current.activities.map((activity) => activity.id)),
         add: (batch) => persist({ activities: [...bundleRef.current.activities, ...batch], report: bundleRef.current.report }),
-        saveState: saveGarminState,
+        saveState: (next) => saveGarminState(id, next),
       })
     } catch (cause) {
-      setGarminError(cause instanceof Error ? cause.message : 'Garmin sync failed.')
+      if (profileRef.current === id) setGarminError(cause instanceof Error ? cause.message : 'Garmin sync failed.')
     } finally {
-      syncingRef.current = false
-      setGarminSyncing(false)
+      syncingRef.current = null
+      setSyncingId(null)
     }
   }, [persist, saveGarminState])
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([loadBundle(), loadGarmin()])
-      .then(([bundle, garminState]) => {
-        if (cancelled) return
-        if (bundle) {
-          bundleRef.current = {
-            activities: bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] })),
-            report: bundle.report,
-          }
-          setActivities(bundleRef.current.activities)
-          setReport(bundle.report)
+    loadBundle()
+      .then((bundle) => {
+        if (cancelled || !bundle) return
+        bundleRef.current = {
+          activities: bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] })),
+          report: bundle.report,
         }
-        if (garminState) {
-          garminRef.current = garminState
-          setGarmin(garminState)
-          void runSync()
-        }
+        setActivities(bundleRef.current.activities)
+        setReport(bundle.report)
       })
       .catch(() => {
         if (!cancelled) setError('Saved sessions could not be opened. You can import the zip again.')
@@ -112,7 +124,30 @@ export function ActivitiesProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [runSync])
+  }, [])
+
+  // The Garmin login follows the profile. It loads after the activities, so a sync sees what is already known.
+  useEffect(() => {
+    profileRef.current = profileId
+    garminRef.current = null
+    setGarmin(null)
+    setGarminError(null)
+    if (!ready) return
+    let cancelled = false
+    loadGarmin(profileId)
+      .then((state) => {
+        if (cancelled || !state) return
+        garminRef.current = state
+        setGarmin(state)
+        void runSync()
+      })
+      .catch(() => {
+        if (!cancelled) setGarminError('The saved Garmin login could not be opened.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [profileId, ready, runSync])
 
   const importFile = useCallback((file: File | undefined) => {
     if (!file) return
@@ -147,17 +182,24 @@ export function ActivitiesProvider({ children }: { children: ReactNode }) {
     setActivities([])
     setReport(null)
     setError(null)
-    // Garmin progress describes the bundle that was just removed; start its history over.
-    const state = garminRef.current
-    if (state) void saveGarminState({ ...state, newestDay: null, oldestDay: null, historyComplete: false, lastSync: null })
+    // Garmin progress describes the bundle that was just removed; every profile starts its history over.
+    for (const id of profileIdsRef.current) {
+      void loadGarmin(id).then((state) => {
+        if (state) return saveGarminState(id, { ...state, newestDay: null, oldestDay: null, historyComplete: false, lastSync: null })
+      })
+    }
   }, [saveGarminState])
 
   const connectGarmin = useCallback(
     async (apiKey: string) => {
       const trimmed = apiKey.trim()
       if (!trimmed) throw new Error('Paste the Personal API key from Garmin Connect.')
+      const id = profileRef.current
       const state = await createGarminState(trimmed)
-      await saveGarmin(state)
+      await saveGarmin(state, id)
+      droppedRef.current.delete(id)
+      // The login is saved for that profile even if another one is showing by now.
+      if (profileRef.current !== id) return
       garminRef.current = state
       setGarmin(state)
       setGarminError(null)
@@ -167,10 +209,17 @@ export function ActivitiesProvider({ children }: { children: ReactNode }) {
   )
 
   const disconnectGarmin = useCallback(async () => {
+    const id = profileRef.current
+    droppedRef.current.add(id)
     garminRef.current = null
     setGarmin(null)
     setGarminError(null)
-    await clearGarmin()
+    await clearGarmin(id)
+  }, [])
+
+  const forgetProfile = useCallback(async (id: string) => {
+    droppedRef.current.add(id)
+    await clearGarmin(id)
   }, [])
 
   return (
@@ -184,11 +233,13 @@ export function ActivitiesProvider({ children }: { children: ReactNode }) {
         importFile,
         clear,
         garmin,
-        garminSyncing,
+        garminSyncing: syncingId === profileId,
+        garminBusy: syncingId !== null,
         garminError,
         connectGarmin,
         syncGarmin: runSync,
         disconnectGarmin,
+        forgetProfile,
       }}
     >
       {children}
