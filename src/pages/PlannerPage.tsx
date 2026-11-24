@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { PlanPicker } from '../components/PlanPicker'
 import { CheckIcon, SessionEditor, SessionViewer, TAG_COLOR, WorkoutStrip } from '../components/PlanSession'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -26,6 +27,7 @@ import {
   type WeekFacts,
 } from '../lib/plan'
 import { formatDayInput, parseDay, startOfWeek } from '../lib/period'
+import { activePlan, addPlan, loadBook, raceText, removePlan, saveBook, selectPlan, updatePlan, type PlanBook, type PlanDraft, type PlanInfo } from '../lib/plans'
 import type { Activity } from '../types'
 
 type Pane = 'week' | 'stats'
@@ -36,7 +38,8 @@ const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
   const { ready, activities } = useActivities()
   const [pane, setPane] = useState<Pane>('week')
-  const [plan, setPlan] = useState(loadPlan)
+  const [book, setBook] = useState(loadBook)
+  const [sessionsOfAll, setSessionsOfAll] = useState(loadPlan)
   const [week, setWeek] = useState(() => weekOf(new Date()))
   const [shown, setShown] = useState(() => {
     const monday = parseDay(weekOf(new Date()))
@@ -69,7 +72,29 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const climb = useMemo(() => (ready ? climbRatio(activities) : null), [ready, activities])
   const byId = useMemo(() => new Map(activities.map((activity) => [activity.id, activity])), [activities])
 
-  const commit = (next: PlannedSession[]) => setPlan(savePlan(next))
+  // Every tab reads the active plan. The other plans' sessions are kept untouched in storage.
+  const info = activePlan(book)
+  const plan = useMemo(() => sessionsOfAll.filter((session) => session.planId === info.id), [sessionsOfAll, info.id])
+  const commit = (next: PlannedSession[]) =>
+    setSessionsOfAll(savePlan([...sessionsOfAll.filter((session) => session.planId !== info.id), ...next.map((session) => ({ ...session, planId: info.id }))]))
+  const changeBook = (next: PlanBook) => setBook(saveBook(next))
+  const switchPlan = (id: string) => {
+    if (id === info.id) return
+    changeBook(selectPlan(book, id))
+    setOpen(null)
+    setDetailId(null)
+  }
+  const createPlan = (draft: PlanDraft) => {
+    changeBook(addPlan(book, draft).book)
+    setOpen(null)
+    setDetailId(null)
+  }
+  const deletePlan = (id: string) => {
+    setSessionsOfAll(savePlan(sessionsOfAll.filter((session) => session.planId !== id)))
+    changeBook(removePlan(book, id))
+    setOpen(null)
+    setDetailId(null)
+  }
   const upsert = (session: PlannedSession) => commit(plan.some((item) => item.id === session.id) ? plan.map((item) => (item.id === session.id ? session : item)) : [...plan, session])
   const goWeek = (next: string, follow = true) => {
     setWeek(next)
@@ -150,9 +175,22 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   return (
     <Frame wide={pane === 'week'}>
       <div className={`mx-auto flex w-full flex-col gap-6 ${pane === 'week' ? 'max-w-[1200px]' : 'max-w-3xl'}`}>
-        <Panes pane={pane} onPane={setPane} />
+        <Panes
+          pane={pane}
+          onPane={setPane}
+          picker={
+            <PlanPicker
+              book={book}
+              sessionCount={(id) => sessionsOfAll.filter((session) => session.planId === id).length}
+              onSelect={switchPlan}
+              onCreate={createPlan}
+              onUpdate={(id, draft) => changeBook(updatePlan(book, id, draft))}
+              onDelete={deletePlan}
+            />
+          }
+        />
         {pane === 'stats' ? (
-          <PlanStats plan={plan} />
+          <PlanStats plan={plan} info={info} />
         ) : (
           <div className="flex items-start gap-8">
             <aside className="sticky top-16 hidden w-[340px] shrink-0 lg:block">
@@ -199,7 +237,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                 <li>
                   <button
                     type="button"
-                    onClick={() => setOpen({ mode: 'edit', session: newSession(week), isNew: true })}
+                    onClick={() => setOpen({ mode: 'edit', session: newSession(week, 'ef', info.id), isNew: true })}
                     className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#2A3140] py-4 text-sm font-semibold text-[#9AA3B5] hover:border-[#4A5264] hover:text-[#E8EAF0]"
                   >
                     <span className="text-lg leading-none">+</span> Add session
@@ -230,21 +268,24 @@ function Frame({ wide = false, children }: { wide?: boolean; children: ReactNode
   )
 }
 
-function Panes({ pane, onPane }: { pane: Pane; onPane: (pane: Pane) => void }) {
+function Panes({ pane, onPane, picker }: { pane: Pane; onPane: (pane: Pane) => void; picker: ReactNode }) {
   const items: { id: Pane; label: string }[] = [
     { id: 'week', label: 'Plan' },
     { id: 'stats', label: 'Stats' },
   ]
   return (
-    <div role="tablist" aria-label="Planner" className="flex gap-6">
-      {items.map((item) => {
-        const on = pane === item.id
-        return (
-          <button key={item.id} type="button" role="tab" aria-selected={on} onClick={() => onPane(item.id)} className={`border-b pb-1 text-sm ${on ? 'border-[#E8EAF0] text-[#E8EAF0]' : 'border-transparent text-[#9AA3B5] hover:text-[#E8EAF0]'}`}>
-            {item.label}
-          </button>
-        )
-      })}
+    <div className="flex items-center justify-between gap-4">
+      <div role="tablist" aria-label="Planner" className="flex gap-6">
+        {items.map((item) => {
+          const on = pane === item.id
+          return (
+            <button key={item.id} type="button" role="tab" aria-selected={on} onClick={() => onPane(item.id)} className={`border-b pb-1 text-sm ${on ? 'border-[#E8EAF0] text-[#E8EAF0]' : 'border-transparent text-[#9AA3B5] hover:text-[#E8EAF0]'}`}>
+              {item.label}
+            </button>
+          )
+        })}
+      </div>
+      {picker}
     </div>
   )
 }
@@ -455,12 +496,19 @@ function SessionRow({
   )
 }
 
-function PlanStats({ plan }: { plan: PlannedSession[] }) {
+function PlanStats({ plan, info }: { plan: PlannedSession[]; info: PlanInfo }) {
   const weeks = [...new Set(plan.map((session) => session.week))].sort()
+  const race = raceText(info.raceDate)
   return (
     <div className="mt-2">
-      <h1 className="font-display text-[34px] font-semibold tracking-tight sm:text-[44px]">This plan</h1>
-      <p className="mt-3 max-w-md text-sm leading-relaxed text-[#9AA3B5]">Estimated distance, time and load across the whole plan will show here.</p>
+      <h1 className="font-display text-[34px] font-semibold tracking-tight sm:text-[44px]">{info.name}</h1>
+      {info.raceDate ? (
+        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
+          Run {parseDay(info.raceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+          {race ? ` · ${race}` : ''}
+        </p>
+      ) : null}
+      <p className="mt-3 max-w-md text-sm leading-relaxed text-[#9AA3B5]">{info.objective || 'Estimated distance, time and load across the whole plan will show here.'}</p>
       <p className="mt-8 text-sm">
         {plan.length === 0 ? (
           <span className="text-[#9AA3B5]">No session yet.</span>
