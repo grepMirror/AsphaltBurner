@@ -548,10 +548,10 @@ if (entry?.endsWith('plan.ts')) {
   if (timed.meters !== null || !near(timed.delta, 0.4) || timed.deltaOf !== 'time') throw new Error(`timed ${JSON.stringify(timed)}`)
   const mean = lastWeekMean([session('a', '2026-11-09', 'ef', 40), session('b', '2026-11-09', 'ef', 60), session('c', '2026-11-09', 'vma', 30)], '2026-11-16', 'ef', 12)
   if (!mean || mean.count !== 2 || mean.done !== 0 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
-  // a done session counts as the run: 40 min planned becomes 30 min / 6 km, the other stays at its plan
+  // a done session counts as the run: 40 min planned becomes 30 min / 6 km, the other stays at its plan (60 min, 12 km)
   const doneA = { ...session('a', '2026-11-09', 'ef', 40), status: 'done' as const, activityId: 'run-1' }
   const actualMean = lastWeekMean([doneA, session('b', '2026-11-09', 'ef', 60)], '2026-11-16', 'ef', 12, undefined, (id) => (id === 'run-1' ? { seconds: 1800, meters: 6000 } : null))
-  if (!actualMean || actualMean.done !== 1 || !near(actualMean.seconds, 2700) || !near(actualMean.meters, 8000)) throw new Error(`actual mean ${JSON.stringify(actualMean)}`)
+  if (!actualMean || actualMean.done !== 1 || !near(actualMean.seconds, 2700) || !near(actualMean.meters, 9000)) throw new Error(`actual mean ${JSON.stringify(actualMean)}`)
   // a done session whose run is gone falls back to its plan
   const lostMean = lastWeekMean([doneA], '2026-11-16', 'ef', 12, undefined, () => null)
   if (!lostMean || lostMean.done !== 0 || !near(lostMean.seconds, 2400)) throw new Error(`lost mean ${JSON.stringify(lostMean)}`)
