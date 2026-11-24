@@ -258,6 +258,15 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                     onDetach={() => upsert({ ...session, status: 'planned', activityId: null })}
                   />
                 ))}
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setOpen({ mode: 'edit', session: newSession(week, 'ef', info.id), isNew: true })}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#2A3140] py-4 text-sm font-semibold text-[#9AA3B5] hover:border-[#4A5264] hover:text-[#E8EAF0]"
+                  >
+                    <span className="text-lg leading-none">+</span> Add session
+                  </button>
+                </li>
                 {free.map((run) => (
                   <li key={run.id}>
                     <button type="button" onClick={() => setDetailId(run.id)} className="flex w-full items-center gap-3 rounded-2xl border border-[#1E2330] bg-[#0F1218] px-4 py-3.5 text-left hover:bg-white/[0.02]">
@@ -270,15 +279,6 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                     </button>
                   </li>
                 ))}
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => setOpen({ mode: 'edit', session: newSession(week, 'ef', info.id), isNew: true })}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#2A3140] py-4 text-sm font-semibold text-[#9AA3B5] hover:border-[#4A5264] hover:text-[#E8EAF0]"
-                  >
-                    <span className="text-lg leading-none">+</span> Add session
-                  </button>
-                </li>
               </ul>
             </section>
             </div>

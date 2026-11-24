@@ -377,17 +377,18 @@ function WorkoutCreator({
   const realized = (session: PlannedSession) => (session.status === 'done' && session.activityId ? (activities.get(session.activityId) ?? null) : null)
   const color = TAG_COLOR[draft.tag]
   const previous = shiftWeek(draft.week, -1)
+  const [showLast, setShowLast] = useState(false)
   const shared = draft.tag === 'vma' || draft.tag === 'threshold'
   const templates = plan
     .filter((session) => session.week === previous && (shared ? session.tag === 'vma' || session.tag === 'threshold' : session.tag === draft.tag) && session.status !== 'cancelled' && session.id !== draft.id)
     .slice(0, 8)
   const zoneHint = pace ? paceText(pace.mid) : undefined
 
-  // Everything last week, whatever the type: planned sessions, completed ones, and runs not linked to a session.
+  // Everything of this week, whatever the type: planned sessions, completed ones, and runs not linked to a session.
   const linked = new Set(plan.map((session) => session.activityId).filter((id): id is string => id !== null))
   const chips: InfoChip[] = [
     ...plan
-      .filter((session) => session.week === previous && session.status !== 'cancelled' && session.id !== draft.id)
+      .filter((session) => session.week === draft.week && session.status !== 'cancelled' && session.id !== draft.id)
       .map((session) => ({
         id: session.id,
         label: tagOf(session.tag).label,
@@ -395,7 +396,7 @@ function WorkoutCreator({
         done: session.status === 'done',
         body: <SessionBrief session={session} run={realized(session)} kmh={kmh} />,
       })),
-    ...weekRuns([...activities.values()], previous)
+    ...weekRuns([...activities.values()], draft.week)
       .filter((run) => !linked.has(run.id))
       .map((run) => ({
         id: run.id,
@@ -427,7 +428,7 @@ function WorkoutCreator({
 
   return (
     <>
-      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`}>
+      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`} fold={{ open: showLast, onToggle: () => setShowLast((value) => !value) }}>
         {templates.length === 0 ? (
           <p className="text-sm text-[#9AA3B5]">Nothing to reuse from last week.</p>
         ) : (
@@ -464,13 +465,13 @@ function WorkoutCreator({
             })}
           </div>
         )}
-        {chips.length > 0 ? (
-          <div className="mt-4">
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[#5A6275]">All of last week · hover or hold for the details</p>
-            <InfoChips chips={chips} />
-          </div>
-        ) : null}
       </Section>
+
+      {chips.length > 0 ? (
+        <Section label="This week · hover or hold for the details">
+          <InfoChips chips={chips} />
+        </Section>
+      ) : null}
 
       <Section label="Workout">
         <div className="flex flex-col gap-2">
@@ -884,14 +885,26 @@ function Toggle<T extends string>({ label, value, options, onChange, small = fal
   )
 }
 
-function Section({ label, action, children }: { label: string; action?: ReactNode; children: ReactNode }) {
+/** With `fold`, the title is a button that shows or hides the content. */
+function Section({ label, action, fold, children }: { label: string; action?: ReactNode; fold?: { open: boolean; onToggle: () => void }; children: ReactNode }) {
   return (
     <section className="mt-7">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{label}</h2>
+      <div className={`flex items-center justify-between ${fold && !fold.open ? '' : 'mb-3'}`}>
+        {fold ? (
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
+            <button type="button" aria-expanded={fold.open} onClick={fold.onToggle} className="flex items-center gap-1.5 uppercase tracking-[0.16em] hover:text-[#E8EAF0]">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition-transform ${fold.open ? 'rotate-90' : ''}`}>
+                <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
+              </svg>
+              {label}
+            </button>
+          </h2>
+        ) : (
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{label}</h2>
+        )}
         {action}
       </div>
-      {children}
+      {fold && !fold.open ? null : children}
     </section>
   )
 }
