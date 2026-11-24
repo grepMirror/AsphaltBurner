@@ -19,6 +19,7 @@ import {
   newSession,
   savePlan,
   shiftWeek,
+  simpleBlocks,
   tagOf,
   totalsText,
   weekFacts,
@@ -130,6 +131,9 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const shared = new Set((typesFor ?? []).map((item) => tags[item] ?? null))
 
   const upsert = (session: PlannedSession) => commit(plan.some((item) => item.id === session.id) ? plan.map((item) => (item.id === session.id ? session : item)) : [...plan, session])
+  /** A run with no session becomes a completed EF session of its week, linked to the run. */
+  const logAsEf = (run: Activity) =>
+    upsert({ ...newSession(week, 'ef', info.id), blocks: simpleBlocks(Math.max(60, Math.round(run.movingSec / 60) * 60)), status: 'done', activityId: run.id })
   const goWeek = (next: string, follow = true) => {
     setWeek(next)
     if (!follow) return
@@ -268,14 +272,24 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
                   </button>
                 </li>
                 {free.map((run) => (
-                  <li key={run.id}>
-                    <button type="button" onClick={() => setDetailId(run.id)} className="flex w-full items-center gap-3 rounded-2xl border border-[#1E2330] bg-[#0F1218] px-4 py-3.5 text-left hover:bg-white/[0.02]">
+                  <li key={run.id} className="flex items-center rounded-2xl border border-[#1E2330] bg-[#0F1218]">
+                    <button type="button" onClick={() => setDetailId(run.id)} className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl px-4 py-3.5 text-left hover:bg-white/[0.02]">
                       <SportIcon sport={run.sport} className="h-4 w-4 shrink-0 text-[#9AA3B5]" />
                       <span className="w-10 shrink-0 text-xs font-semibold uppercase text-[#9AA3B5]">{dayName(run.date)}</span>
                       <span className="min-w-0 flex-1 truncate text-sm">{run.name}</span>
                       <span className="shrink-0 text-xs tabular-nums text-[#9AA3B5]">
                         {formatDistance(run.distanceM)} · {formatDuration(run.movingSec)}
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Log this run as a completed EF session"
+                      aria-label={`Log ${run.name} as an EF session`}
+                      onClick={() => logAsEf(run)}
+                      className="mx-2 shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold hover:bg-white/5"
+                      style={{ color: TAG_COLOR.ef }}
+                    >
+                      + EF
                     </button>
                   </li>
                 ))}
