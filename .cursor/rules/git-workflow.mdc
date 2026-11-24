@@ -1,0 +1,42 @@
+---
+description: Git workflow for branch checkout, commit and push. Apply whenever creating or switching branches, committing or pushing.
+alwaysApply: true
+---
+
+# Git workflow
+
+## Create or checkout a branch
+- Start new work from an up-to-date `main`:
+  ```bash
+  git checkout main
+  git pull origin main
+  git checkout -b feat/<short-name>   # or fix/<short-name> for bugs
+  ```
+- Branch names: `feat/<name>` for features, `fix/<name>` for bugs.
+  Examples: `feat/garmin-connector`, `fix/default-karvonen-hr-method`.
+- To switch to an existing branch: `git checkout <branch>`.
+- Run `git status` first. Never switch branches with uncommitted changes that do not belong to the task.
+
+## Commit (only when the user asks)
+- Stage only the files for the requested change: `git add <files>`. Avoid `git add -A` unless asked.
+- Check the staged content with `git diff --staged` before committing. Never commit secrets or `.env` files.
+- Message style: Bullet points, concise
+- Describe what the code does. Never mention the assistant, Cursor, AI, "I" or "you" in the message.
+- Author: use the git config identity (`grepMirror mroy0407@gmail.com`).
+  Never add a `Co-authored-by: Cursor` trailer or any other AI attribution.
+- Pass the message through a heredoc so the formatting is kept:
+  ```bash
+  git commit -F - <<'EOF'
+  feat: Add Garmin connector to import activities
+
+  - Parse FIT files from the Garmin export
+  - Tag imported activities with source "garmin"
+  EOF
+  ```
+- Do not amend, rebase or force-push unless the user explicitly asks.
+
+## Push (only when the user asks)
+- First push of a new branch: `git push -u origin <branch>`.
+- Later pushes: `git push`.
+- Confirm with `git status -sb`: the branch should no longer show `ahead`.
+- Do not force-push unless the user explicitly asks.

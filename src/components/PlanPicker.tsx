@@ -20,6 +20,7 @@ type FormTarget = string | null | undefined
 export function PlanPicker({ book, sessionCount, onSelect, onCreate, onUpdate, onDelete }: Props) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormTarget>(undefined)
+  const [removing, setRemoving] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const current = activePlan(book)
   const race = raceText(current.raceDate)
@@ -92,6 +93,18 @@ export function PlanPicker({ book, sessionCount, onSelect, onCreate, onUpdate, o
                   >
                     <PencilIcon />
                   </IconButton>
+                  {book.plans.length > 1 ? (
+                    <IconButton
+                      label={`Delete ${plan.name}`}
+                      danger
+                      onClick={() => {
+                        setOpen(false)
+                        setRemoving(plan.id)
+                      }}
+                    >
+                      <BinIcon />
+                    </IconButton>
+                  ) : null}
                 </li>
               )
             })}
@@ -108,6 +121,18 @@ export function PlanPicker({ book, sessionCount, onSelect, onCreate, onUpdate, o
             New plan
           </button>
         </div>
+      ) : null}
+
+      {removing !== null && book.plans.some((plan) => plan.id === removing) ? (
+        <DeleteConfirm
+          plan={book.plans.find((plan) => plan.id === removing) as PlanInfo}
+          sessions={sessionCount(removing)}
+          onClose={() => setRemoving(null)}
+          onDelete={() => {
+            onDelete(removing)
+            setRemoving(null)
+          }}
+        />
       ) : null}
 
       {target !== undefined ? (
@@ -275,9 +300,34 @@ function PlanForm({
   )
 }
 
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+/** What deleting a plan takes with it, and the choice to keep it. */
+function DeleteConfirm({ plan, sessions, onClose, onDelete }: { plan: PlanInfo; sessions: number; onClose: () => void; onDelete: () => void }) {
   return (
-    <button type="button" aria-label={label} title={label} onClick={onClick} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[#9AA3B5] hover:bg-white/5 hover:text-[#E8EAF0]">
+    <Modal title="Delete plan" onClose={onClose}>
+      <p className="text-sm text-[#E8EAF0]">
+        Delete <span className="font-semibold">{plan.name}</span>? {sessions === 0 ? 'It has no session.' : `Its ${sessions} ${sessions === 1 ? 'session' : 'sessions'} and week tags go with it.`} This cannot be undone.
+      </p>
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" autoFocus onClick={onClose} className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#C5CAD3] hover:bg-white/5">
+          Keep it
+        </button>
+        <button type="button" onClick={onDelete} className="rounded-full bg-[#E7A3A3] px-5 py-2.5 text-sm font-semibold text-[#0B0D12]">
+          Delete plan
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+function IconButton({ label, onClick, danger = false, children }: { label: string; onClick: () => void; danger?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[#9AA3B5] hover:bg-white/5 ${danger ? 'hover:text-[#E7A3A3]' : 'hover:text-[#E8EAF0]'}`}
+    >
       {children}
     </button>
   )
@@ -288,6 +338,14 @@ function PencilIcon() {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2.8 13.2 3.4 10 10.8 2.6a1.4 1.4 0 0 1 2 0l.6.6a1.4 1.4 0 0 1 0 2L6 12.6l-3.2.6Z" />
       <path d="m9.6 3.8 2.6 2.6" />
+    </svg>
+  )
+}
+
+function BinIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.5 4.5h9M6.2 4.4V3.2h3.6v1.2M4.4 4.5l.5 8.2h6.2l.5-8.2" />
     </svg>
   )
 }
