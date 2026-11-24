@@ -1,4 +1,5 @@
 import { normalizeSport } from './format'
+import { DEFAULT_PROFILE_ID, garminKeyOf } from './profiles'
 import { sportFromType } from './strava'
 import type { Activity, GarminState, ImportReport } from '../types'
 
@@ -10,7 +11,6 @@ export type SavedBundle = {
 const DB_NAME = 'asphaltburner'
 const STORE = 'bundle'
 const KEY = 'v2'
-const GARMIN_KEY = 'garmin'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -76,15 +76,15 @@ function request<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => ID
   )
 }
 
-/** Garmin key and sync progress live under their own key, apart from the activity bundle. */
-export async function loadGarmin(): Promise<GarminState | null> {
-  return (await request<GarminState | undefined>('readonly', (store) => store.get(GARMIN_KEY))) ?? null
+/** Garmin key and sync progress live under their own key per profile, apart from the activity bundle. */
+export async function loadGarmin(profileId: string = DEFAULT_PROFILE_ID): Promise<GarminState | null> {
+  return (await request<GarminState | undefined>('readonly', (store) => store.get(garminKeyOf(profileId)))) ?? null
 }
 
-export async function saveGarmin(state: GarminState): Promise<void> {
-  await request('readwrite', (store) => store.put(state, GARMIN_KEY))
+export async function saveGarmin(state: GarminState, profileId: string = DEFAULT_PROFILE_ID): Promise<void> {
+  await request('readwrite', (store) => store.put(state, garminKeyOf(profileId)))
 }
 
-export async function clearGarmin(): Promise<void> {
-  await request('readwrite', (store) => store.delete(GARMIN_KEY))
+export async function clearGarmin(profileId: string = DEFAULT_PROFILE_ID): Promise<void> {
+  await request('readwrite', (store) => store.delete(garminKeyOf(profileId)))
 }
