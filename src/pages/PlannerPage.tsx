@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { PlanPicker } from '../components/PlanPicker'
 import { BlockTypesModal } from '../components/WeekTags'
 import { addKind, clearPlanTags, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, weeksBetween, type BlockBook, type BlockKind } from '../lib/blocks'
@@ -44,6 +45,8 @@ type Tagging = {
   raceWeek: string | null
   /** Open the block type window for these weeks. */
   onTag: (weeks: string[]) => void
+  /** Remove the tag of these weeks, a whole block. */
+  onClear: (weeks: string[]) => void
   /** A block was stretched or shrunk: it covered `run` and now covers `weeks`. */
   onStretch: (run: string[], weeks: string[], kindId: string) => void
 }
@@ -123,6 +126,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     kinds: kindsOf(blocks),
     raceWeek,
     onTag: setTypesFor,
+    onClear: (weeks) => changeBlocks(tagWeeks(blocks, info.id, weeks, null)),
     onStretch: (run, weeks, kindId) => changeBlocks(tagWeeks(tagWeeks(blocks, info.id, run, null), info.id, weeks, kindId)),
   }
   const shared = new Set((typesFor ?? []).map((item) => tags[item] ?? null))
@@ -159,6 +163,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
           isNew={open.isNew}
           plan={plan}
           pace={pace}
+          activities={byId}
           onBack={() => setOpen(null)}
           onSave={(session) => {
             upsert(session)
@@ -744,7 +749,9 @@ function MonthPlan({
                   // A block that goes on in the other month has no grip on that side.
                   canStart={run[0] === first}
                   canEnd={run[run.length - 1] === last}
+                  weeks={run.length}
                   onOpen={() => tagging.onTag(run)}
+                  onDelete={() => tagging.onClear(run)}
                   onBegin={(edge, event) => onBegin(kind.id, edge, run, event)}
                 />
               ) : (
@@ -791,23 +798,44 @@ function MonthPlan({
 /**
  * Rail of a block: the type name and a line, both in the type's color.
  * Hovering tints it and shows a grip at each end: drag a grip to stretch the block over more weeks, or to shrink it.
- * Clicking it opens the block type window for the whole block.
+ * Clicking it opens the block type window for the whole block. Right-click (or a long press) offers to delete the tag of the whole block.
  */
 function BlockRail({
   kind,
   active,
   canStart,
   canEnd,
+  weeks,
   onOpen,
+  onDelete,
   onBegin,
 }: {
   kind: BlockKind
   active: boolean
   canStart: boolean
   canEnd: boolean
+  /** Weeks the whole block covers. */
+  weeks: number
   onOpen: () => void
+  onDelete: () => void
   onBegin: (edge: 'start' | 'end', event: ReactPointerEvent) => void
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [menu])
   const grip = (edge: 'start' | 'end') => (
     <span
       title="Drag to stretch the block"
@@ -824,8 +852,15 @@ function BlockRail({
       <button
         type="button"
         aria-label={`${kind.label} block: change its type`}
-        title={`${kind.label} · click to change, drag an end to stretch`}
+        title={`${kind.label} · click to change, right-click to delete, drag an end to stretch`}
         onClick={onOpen}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          // From the keyboard the event has no position: open the menu under the rail.
+          const box = event.currentTarget.getBoundingClientRect()
+          const fromKeyboard = event.clientX === 0 && event.clientY === 0
+          setMenu({ x: fromKeyboard ? box.right : event.clientX, y: fromKeyboard ? box.bottom : event.clientY })
+        }}
         className="absolute inset-0 overflow-hidden rounded-md outline-none focus-visible:ring-1 focus-visible:ring-white/40"
       >
         <span aria-hidden="true" className={`absolute inset-0 rounded-md transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover/rail:opacity-100'}`} style={{ background: `${kind.color}22` }} />
@@ -838,6 +873,37 @@ function BlockRail({
       </button>
       {canStart ? grip('start') : null}
       {canEnd ? grip('end') : null}
+      {menu
+        ? // Portal: the list sits in a sticky column, a fixed menu must be placed against the screen.
+          createPortal(
+            <>
+              <div className="fixed inset-0 z-40" onPointerDown={() => setMenu(null)} onContextMenu={(event) => event.preventDefault()} />
+              <div
+                role="menu"
+                aria-label={`${kind.label} block`}
+                className="fixed z-50 w-56 rounded-xl border border-[#1E2330] bg-[#10131A] p-1 shadow-xl"
+                style={{ left: Math.min(menu.x, window.innerWidth - 232), top: Math.min(menu.y, window.innerHeight - 100) }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  autoFocus
+                  onClick={() => {
+                    setMenu(null)
+                    onDelete()
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-[#E7A3A3] hover:bg-white/5"
+                >
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3.5 4.5h9M6.2 4.4V3.2h3.6v1.2M4.4 4.5l.5 8.2h6.2l.5-8.2" />
+                  </svg>
+                  Delete tag · {weeks} {weeks === 1 ? 'week' : 'weeks'}
+                </button>
+              </div>
+            </>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

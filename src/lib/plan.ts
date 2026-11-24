@@ -352,14 +352,35 @@ export function weekFacts(plan: PlannedSession[], week: string, kmh: number | nu
   }
 }
 
-export function lastWeekMean(plan: PlannedSession[], week: string, tag: SessionTag, kmh: number | null, skipId?: string): { count: number; seconds: number | null; meters: number | null } | null {
+/** What a run really did. Given for sessions that were marked done, so last week shows the run, not the plan. */
+export type ActualRun = (activityId: string) => { seconds: number; meters: number } | null
+
+/** Average of last week's sessions of one type. A done session counts as the run, any other as its plan. */
+export function lastWeekMean(
+  plan: PlannedSession[],
+  week: string,
+  tag: SessionTag,
+  kmh: number | null,
+  skipId?: string,
+  actual?: ActualRun,
+): { count: number; done: number; seconds: number | null; meters: number | null } | null {
   const list = live(plan, shiftWeek(week, -1)).filter((session) => session.tag === tag && session.id !== skipId)
   if (list.length === 0) return null
-  const totals = sumTotals(list, kmh)
+  let seconds: number | null = 0
+  let meters: number | null = 0
+  let done = 0
+  for (const session of list) {
+    const run = session.status === 'done' && session.activityId && actual ? actual(session.activityId) : null
+    const totals = run ?? blockTotals(session.blocks, kmh)
+    if (run) done += 1
+    seconds = seconds === null || totals.seconds === null ? null : seconds + totals.seconds
+    meters = meters === null || totals.meters === null ? null : meters + totals.meters
+  }
   return {
     count: list.length,
-    seconds: totals.seconds == null ? null : totals.seconds / list.length,
-    meters: totals.meters == null ? null : totals.meters / list.length,
+    done,
+    seconds: seconds == null ? null : seconds / list.length,
+    meters: meters == null ? null : meters / list.length,
   }
 }
 
@@ -526,7 +547,14 @@ if (entry?.endsWith('plan.ts')) {
   const timed = weekFacts([session('1', '2026-11-16', 'ef', 70), session('4', '2026-11-09', 'ef', 50)], '2026-11-16', null, null, [])
   if (timed.meters !== null || !near(timed.delta, 0.4) || timed.deltaOf !== 'time') throw new Error(`timed ${JSON.stringify(timed)}`)
   const mean = lastWeekMean([session('a', '2026-11-09', 'ef', 40), session('b', '2026-11-09', 'ef', 60), session('c', '2026-11-09', 'vma', 30)], '2026-11-16', 'ef', 12)
-  if (!mean || mean.count !== 2 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
+  if (!mean || mean.count !== 2 || mean.done !== 0 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
+  // a done session counts as the run: 40 min planned becomes 30 min / 6 km, the other stays at its plan
+  const doneA = { ...session('a', '2026-11-09', 'ef', 40), status: 'done' as const, activityId: 'run-1' }
+  const actualMean = lastWeekMean([doneA, session('b', '2026-11-09', 'ef', 60)], '2026-11-16', 'ef', 12, undefined, (id) => (id === 'run-1' ? { seconds: 1800, meters: 6000 } : null))
+  if (!actualMean || actualMean.done !== 1 || !near(actualMean.seconds, 2700) || !near(actualMean.meters, 8000)) throw new Error(`actual mean ${JSON.stringify(actualMean)}`)
+  // a done session whose run is gone falls back to its plan
+  const lostMean = lastWeekMean([doneA], '2026-11-16', 'ef', 12, undefined, () => null)
+  if (!lostMean || lostMean.done !== 0 || !near(lostMean.seconds, 2400)) throw new Error(`lost mean ${JSON.stringify(lostMean)}`)
   const daily = dailyKm([run('2026-11-16T08:00:00', 5000), run('2026-11-16T18:00:00', 3000), run('2026-11-22T08:00:00', 10000), run('2026-11-23T08:00:00', 7000)], '2026-11-16')
   if (daily.join() !== '8,0,0,0,0,0,10') throw new Error(`daily ${daily.join()}`)
   const now = new Date(2026, 10, 19, 12).getTime()

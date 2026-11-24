@@ -140,6 +140,10 @@ export function ProfileModal({ book, onSelect, onCreate, onRename, onHr, onDelet
             )}
           </div>
         ) : null}
+
+        <button type="button" onClick={onClose} className="w-full rounded-2xl bg-[#E8EAF0] py-3 text-sm font-semibold text-[#0B0D12] hover:bg-white">
+          Done
+        </button>
       </div>
     </Modal>
   )
