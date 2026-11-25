@@ -1,5 +1,5 @@
 import { weeksBetween } from './blocks'
-import { blockTotals, type PlannedSession } from './plan'
+import { blockTotals, blockZoneMeters, type PlannedSession } from './plan'
 import type { Activity } from '../types'
 
 export type WeekState = 'past' | 'current' | 'future'
@@ -19,6 +19,8 @@ export type StatWeek = {
   doneSec: number
   sessions: number
   sessionsDone: number
+  /** Planned meters in zone 1 to 5, estimated from the paces of the steps. */
+  zoneM: number[]
 }
 
 export type PlanTotals = {
@@ -67,6 +69,7 @@ export function planStats(
     doneSec: 0,
     sessions: 0,
     sessionsDone: 0,
+    zoneM: [0, 0, 0, 0, 0],
   }))
   const byWeek = new Map(weeks.map((row) => [row.week, row]))
   const totals = emptyTotals()
@@ -87,6 +90,9 @@ export function planStats(
     row.plannedM += plannedM
     row.plannedSec += plannedSec
     row.sessions += 1
+    blockZoneMeters(session.blocks, kmh, session.tag).forEach((meters, zone) => {
+      row.zoneM[zone] += meters
+    })
     if (done) {
       row.doneM += doneM
       row.doneSec += doneSec
@@ -166,6 +172,13 @@ if (entry?.endsWith('planStats.ts')) {
   // by sessions when no distance can be told
   const bare = planStats([noPace(session('x', '2026-11-02', 60)), noPace(session('y', '2026-11-02', 60, 'done'))], {}, null, null, byId, '2026-11-02')
   if (bare.totals.basis !== 'sessions' || !near(bare.totals.ratio ?? -1, 0.5)) throw new Error(`bare ${JSON.stringify(bare.totals)}`)
+
+  // 60 min at 6:00/km (10 km/h) is zone 1. 6 x 1 km at 4:00/km is 15 km/h, 1.5 times the zone 1 speed, so zone 5.
+  const hard: PlannedSession = { ...session('h', '2026-11-02', 0), tag: 'vma', blocks: [{ repeat: 6, steps: [{ kind: 'active', by: 'km', value: 1000, pace: 240 }] }, { repeat: 1, steps: [{ kind: 'recover', by: 'time', value: 600, pace: null }, { kind: 'active', by: 'time', value: 360, pace: null }] }] }
+  const zones = planStats([hard], {}, null, 10, byId, '2026-11-02').weeks[0].zoneM
+  // recover runs at zone 1 (600 s at 10 km/h), the rep without a pace follows the VMA type, zone 5 (360 s at 10 km/h)
+  if (!near(zones[4], 6000 + 1000) || !near(zones[0], 1666.6666666666667)) throw new Error(`zones ${zones}`)
+  if (!near(planStats([session('z', '2026-11-02', 60)], {}, null, 10, byId, '2026-11-02').weeks[0].zoneM[0], 10000)) throw new Error('easy session is zone 1')
 
   const empty = planStats([], {}, null, 10, byId, '2026-11-09')
   if (empty.weeks.length !== 0 || empty.totals.ratio !== null) throw new Error('empty plan')
