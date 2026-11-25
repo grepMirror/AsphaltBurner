@@ -1,5 +1,7 @@
 import { formatDayInput, parseDay } from './period'
-import { newId, shiftWeek, weekOf } from './plan'
+import { DEFAULT_PLAN_ID, newId, shiftWeek, weekOf } from './plan'
+import { noteChange, profileKey } from './profileData'
+import { sameContent } from './stamp'
 
 /** The type of a block of weeks (VMA, Tapering, …). Weeks are tagged with a kind; an untagged week has none. */
 export type BlockKind = {
@@ -15,6 +17,8 @@ export type BlockBook = {
   custom: BlockKind[]
   /** Plan id, then Monday of the week, then kind id. A week that is not listed has no tag. */
   tags: Record<string, Record<string, string>>
+  /** When the book last changed. Drive keeps the whole newer book, not single weeks. */
+  updatedAt?: string
 }
 
 export const BUILT_IN_KINDS: readonly BlockKind[] = [
@@ -88,26 +92,39 @@ export function normalizeBlocks(raw: unknown): BlockBook {
     }
     if (Object.keys(clean).length > 0) tags[planId] = clean
   }
-  return { custom, tags }
+  const updatedAt = typeof row.updatedAt === 'string' && !Number.isNaN(Date.parse(row.updatedAt)) ? row.updatedAt : undefined
+  return updatedAt ? { custom, tags, updatedAt } : { custom, tags }
 }
 
-export function loadBlocks(): BlockBook {
+export function loadBlocks(profileId: string = DEFAULT_PLAN_ID): BlockBook {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(profileKey(KEY, profileId))
     return raw ? normalizeBlocks(JSON.parse(raw)) : emptyBlocks()
   } catch {
     return emptyBlocks()
   }
 }
 
-export function saveBlocks(book: BlockBook): BlockBook {
+/** Stores the book as it is, with the stamp it already has. Used for copies that come from Drive. */
+export function storeBlocks(profileId: string, book: BlockBook): BlockBook {
   const next = normalizeBlocks(book)
   try {
-    localStorage.setItem(KEY, JSON.stringify(next))
+    localStorage.setItem(profileKey(KEY, profileId), JSON.stringify(next))
   } catch {
     /* the tags still apply for this visit */
   }
   return next
+}
+
+/** A local save. The book is stamped only when its content changed. */
+export function saveBlocks(profileId: string, book: BlockBook): BlockBook {
+  const prev = loadBlocks(profileId)
+  const next = normalizeBlocks(book)
+  const changed = !sameContent(prev, next)
+  const updatedAt = changed ? new Date().toISOString() : (prev.updatedAt ?? next.updatedAt)
+  const stored = storeBlocks(profileId, { ...next, updatedAt })
+  noteChange(profileId)
+  return stored
 }
 
 /** Gives every given week this kind, or clears them when `kindId` is null. An unknown kind changes nothing. */

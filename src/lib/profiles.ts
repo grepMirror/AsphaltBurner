@@ -8,13 +8,33 @@ export type HrSettings = {
   zones: ZoneEdges
 }
 
+/** The Google Drive file a profile is saved to. Only the link is kept here, never a token. */
+export type DriveLink = {
+  fileId: string
+  /** Drive version the local copy last matched. */
+  lastVersion: string | null
+  lastSyncAt: string | null
+  /** False when the file is only shared as viewer: the profile is read-only. */
+  canEdit: boolean
+  /** The Strava archive file in Drive, once it was backed up or restored. */
+  archiveId: string | null
+}
+
 /**
- * A profile is a name, its heart-rate settings, and its connectors login.
- * Activities are not part of it: every profile reads the same activities.
+ * A profile is a name, its heart-rate settings, its connectors login and, when saved, its Drive file.
+ * Activities of a profile saved to Drive are its own; the others read the shared activities.
  */
 export type Profile = HrSettings & {
   id: string
   name: string
+  /** When the name or heart-rate settings last changed. Drive keeps the newer side. */
+  settingsAt?: string
+  drive?: DriveLink
+  /**
+   * The activities are this profile's own, not the shared ones. Set for a profile loaded from Drive,
+   * and kept when the link is removed, so its activities do not switch bundle.
+   */
+  ownBundle?: boolean
 }
 
 export type ProfileBook = {
@@ -39,7 +59,7 @@ export function cleanName(raw: unknown): string {
   return typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : ''
 }
 
-function cleanHr(raw: Partial<Record<keyof HrSettings, unknown>>): HrSettings {
+export function cleanHr(raw: Partial<Record<keyof HrSettings, unknown>>): HrSettings {
   const base = defaultHr()
   return {
     maxHr: typeof raw.maxHr === 'number' ? clampMaxHr(raw.maxHr) : base.maxHr,
@@ -49,13 +69,40 @@ function cleanHr(raw: Partial<Record<keyof HrSettings, unknown>>): HrSettings {
   }
 }
 
-function cleanProfile(raw: unknown): Profile | null {
+function nowStamp(): string {
+  return new Date().toISOString()
+}
+
+function cleanStamp(raw: unknown): string | undefined {
+  return typeof raw === 'string' && !Number.isNaN(Date.parse(raw)) ? raw : undefined
+}
+
+function cleanLink(raw: unknown): DriveLink | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const row = raw as Record<string, unknown>
+  if (typeof row.fileId !== 'string' || !row.fileId) return undefined
+  return {
+    fileId: row.fileId,
+    lastVersion: typeof row.lastVersion === 'string' ? row.lastVersion : null,
+    lastSyncAt: cleanStamp(row.lastSyncAt) ?? null,
+    canEdit: row.canEdit !== false,
+    archiveId: typeof row.archiveId === 'string' && row.archiveId ? row.archiveId : null,
+  }
+}
+
+export function cleanProfile(raw: unknown): Profile | null {
   if (typeof raw !== 'object' || raw === null) return null
   const row = raw as Record<string, unknown>
   const id = typeof row.id === 'string' ? row.id.trim() : ''
   const name = cleanName(row.name)
   if (!id || !name) return null
-  return { id, name, ...cleanHr(row) }
+  const profile: Profile = { id, name, ...cleanHr(row) }
+  const settingsAt = cleanStamp(row.settingsAt)
+  if (settingsAt) profile.settingsAt = settingsAt
+  const drive = cleanLink(row.drive)
+  if (drive) profile.drive = drive
+  if (row.ownBundle === true) profile.ownBundle = true
+  return profile
 }
 
 /** Valid profiles only, one per id, and an active id that exists. `null` when nothing usable is left. */
@@ -137,13 +184,38 @@ export function addProfile(book: ProfileBook, name?: string): { book: ProfileBoo
 export function renameProfile(book: ProfileBook, id: string, name: string): ProfileBook {
   const clean = cleanName(name)
   if (!clean) return book
-  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, name: clean } : profile)) }
+  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, name: clean, settingsAt: nowStamp() } : profile)) }
 }
 
 export function updateHr(book: ProfileBook, id: string, patch: Partial<HrSettings>): ProfileBook {
   return {
     ...book,
-    profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, ...cleanHr({ ...profile, ...patch }) } : profile)),
+    profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, ...cleanHr({ ...profile, ...patch }), settingsAt: nowStamp() } : profile)),
+  }
+}
+
+/** Sets the Drive file of one profile. `null` unlinks it and keeps the local data. */
+export function setDriveLink(book: ProfileBook, id: string, link: DriveLink | null): ProfileBook {
+  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, drive: link ?? undefined } : profile)) }
+}
+
+/** A profile loaded from Drive keeps its own activities from now on. */
+export function setOwnBundle(book: ProfileBook, id: string): ProfileBook {
+  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, ownBundle: true } : profile)) }
+}
+
+/** Gives a profile the time of its settings when it has none yet, so Drive can tell it apart from a newer copy. */
+export function stampSettings(book: ProfileBook, id: string, at: string): ProfileBook {
+  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id && !profile.settingsAt ? { ...profile, settingsAt: at } : profile)) }
+}
+
+/** Name and heart-rate settings taken from another copy, kept with the time they were set. */
+export function applySettings(book: ProfileBook, id: string, settings: HrSettings & { name: string }, at: string): ProfileBook {
+  return {
+    ...book,
+    profiles: book.profiles.map((profile) =>
+      profile.id === id ? { ...profile, ...cleanHr(settings), name: cleanName(settings.name) || profile.name, settingsAt: at || undefined } : profile,
+    ),
   }
 }
 

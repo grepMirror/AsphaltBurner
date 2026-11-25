@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 import { NAME_MAX, activeProfile, type HrSettings, type Profile, type ProfileBook } from '../lib/profiles'
 import { ConnectorsPanel } from './Connectors'
 import { HeartRatePanel } from './HeartRatePanel'
+import { ImportZip } from './ImportZip'
 import { Modal } from './Modal'
 
 type Props = {
@@ -102,6 +103,10 @@ export function ProfileModal({ book, onSelect, onCreate, onRename, onHr, onDelet
 
         <Section title="Heart rate">
           <HeartRatePanel key={profile.id} values={profile} onChange={(patch) => onHr(profile.id, patch)} />
+        </Section>
+
+        <Section title="Activities">
+          <ImportZip />
         </Section>
 
         <Section title="Connectors">
