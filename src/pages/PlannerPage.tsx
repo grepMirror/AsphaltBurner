@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { PAGE_INNER } from '../components/layout'
 import { ContextMenu, menuPoint } from '../components/ContextMenu'
 import { PlanPicker } from '../components/PlanPicker'
 import { PlanStats } from '../components/PlanStats'
@@ -151,7 +152,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const detail = detailId ? (byId.get(detailId) ?? null) : null
   if (detail) {
     return (
-      <Frame wide>
+      <Frame>
         <SessionView activity={detail} maxHr={maxHr} split={split} restHr={restHr} method={method} backLabel="← Back to session" onBack={() => setDetailId(null)} />
       </Frame>
     )
@@ -213,8 +214,8 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   }
 
   return (
-    <Frame wide={pane === 'week'}>
-      <div className={`mx-auto flex w-full flex-col gap-6 ${pane === 'week' ? 'max-w-[1200px]' : 'max-w-3xl'}`}>
+    <Frame>
+      <div className={`${PAGE_INNER} flex flex-col gap-6`}>
         <Panes
           pane={pane}
           onPane={setPane}
@@ -334,10 +335,10 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   )
 }
 
-function Frame({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
+function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 pb-12 pt-5 sm:px-8 sm:pt-8">
-      <div className={`mx-auto ${wide ? 'max-w-[1280px]' : 'max-w-3xl'}`}>{children}</div>
+      <div className={PAGE_INNER}>{children}</div>
     </div>
   )
 }
