@@ -284,6 +284,41 @@ export function blockTotals(blocks: Block[], kmh: number | null): Totals {
   return { seconds: secondsKnown ? seconds : null, meters: metersKnown ? meters : null }
 }
 
+/** Speed over the zone 1 speed where zone 2, 3, 4 and 5 start. Rough on purpose: it only sorts a plan into bands. */
+const ZONE_SPEED_EDGES = [1.08, 1.18, 1.28, 1.4]
+/** Zone of a hard step that has no pace target, by the type of its session. */
+const TAG_ZONE: Record<SessionTag, number> = { ef: 1, long: 2, threshold: 4, climb: 4, vma: 5 }
+
+/** Zone 1 to 5 of a step: its pace against the zone 1 speed, else the type of its session for hard steps, else zone 1. */
+export function stepZone(item: Step, kmh: number | null, tag: SessionTag): number {
+  if (item.pace && kmh) {
+    const ratio = (3600 / item.pace) / kmh
+    return ZONE_SPEED_EDGES.filter((edge) => ratio >= edge).length + 1
+  }
+  return item.kind === 'active' ? TAG_ZONE[tag] : 1
+}
+
+/**
+ * Estimated meters of a session in each zone, zone 1 first. Steps whose distance cannot be told (no pace and no zone 1 speed) are left out.
+ */
+export function blockZoneMeters(blocks: Block[], kmh: number | null, tag: SessionTag): number[] {
+  const meters = [0, 0, 0, 0, 0]
+  const add = (block: Block, times: number) => {
+    const reps = times * block.repeat
+    for (const item of block.steps) {
+      if (isBlock(item)) {
+        add(item, reps)
+        continue
+      }
+      const speed = item.pace ? 1000 / item.pace : kmh ? kmh / 3.6 : null
+      const length = item.by === 'km' ? item.value : speed ? speed * item.value : null
+      if (length !== null) meters[stepZone(item, kmh, tag) - 1] += length * reps
+    }
+  }
+  for (const block of blocks) add(block, 1)
+  return meters
+}
+
 /** The run of a session marked done, when the run is still around. */
 function realRun(session: PlannedSession, byId: ReadonlyMap<string, Activity>): Activity | null {
   return session.status === 'done' && session.activityId ? (byId.get(session.activityId) ?? null) : null

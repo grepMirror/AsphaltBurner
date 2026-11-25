@@ -1,9 +1,11 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { BaseChart } from './BaseChart'
+import { Segment } from './Segment'
 import type { BlockKind } from '../lib/blocks'
 import { rangeLabel } from '../lib/calendar'
 import { formatDistance, formatDuration } from '../lib/format'
 import { weekOf, type PlannedSession } from '../lib/plan'
+import { ZONE_BANDS, type ZoneBand, type ZoneStyle } from '../lib/load'
 import { planStats, type PlanTotals, type StatWeek } from '../lib/planStats'
 import { parseDay } from '../lib/period'
 import { raceText, type PlanInfo } from '../lib/plans'
@@ -14,7 +16,27 @@ const NO_BLOCK = '#6B7488'
 const DONE = '#E8EAF0'
 const GOOD = '#9DDBC0'
 
-type Row = StatWeek & { plannedKm: number; doneKm: number | null; kind: BlockKind | null }
+/** What the bars show: the block type of each week, or the estimated zones of its sessions. */
+type Mode = 'blocks' | ZoneStyle
+const MODES: { id: Mode; label: string }[] = [
+  { id: 'blocks', label: 'Blocks' },
+  { id: '3', label: '3 zones' },
+  { id: '5', label: '5 zones' },
+]
+
+/** `zones` holds the planned km of every zone band of both styles (z1..z5, easy, medium, hard). */
+type Row = StatWeek & { plannedKm: number; doneKm: number | null; kind: BlockKind | null; zones: Record<string, number> }
+
+/** Planned km that fall in a zone. It can be under the planned km when a run stands in for a plan with no pace. */
+function zoneTotal(row: Row): number {
+  return row.zones.easy + row.zones.medium + row.zones.hard
+}
+
+/** Zone 1 to 5 meters as km in the bands of both styles. Zones 1 and 2 are easy, 3 is medium, 4 and 5 are hard. */
+function zoneKm(zoneM: number[]): Record<string, number> {
+  const km = zoneM.map((meters) => meters / 1000)
+  return { z1: km[0], z2: km[1], z3: km[2], z4: km[3], z5: km[4], easy: km[0] + km[1], medium: km[2], hard: km[3] + km[4] }
+}
 
 /**
  * The stats of a plan: how much of it is done, and the volume of every week up to the run.
@@ -51,13 +73,14 @@ export function PlanStats({
         // The line stops today: a week to come has nothing done yet.
         doneKm: week.state === 'future' ? null : week.doneM / 1000,
         kind: kinds.find((kind) => kind.id === week.kindId) ?? null,
+        zones: zoneKm(week.zoneM),
       })),
     [data.weeks, kinds],
   )
 
   // Phone: name, ring, Realized, chart. Desktop: name and Realized on the left, ring and chart on the right.
   return (
-    <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-x-12">
+    <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-6 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] lg:gap-x-8">
       <header className="col-span-2 min-w-0 lg:col-span-1 lg:col-start-1 lg:row-start-1">
         <h1 className="font-display text-[34px] font-semibold leading-tight tracking-tight sm:text-[44px]">{info.name}</h1>
         {info.raceDate ? (
@@ -83,7 +106,7 @@ export function PlanStats({
               Realized
             </h2>
             {/* Desktop: a T. Distance and sessions side by side, a line under them, the time centered below. */}
-            <div className="grid lg:mx-auto lg:mt-3 lg:max-w-[22rem] lg:grid-cols-2">
+            <div className="grid lg:mt-2 lg:grid-cols-2">
               <Progress label="Distance" done={formatDistance(totals.doneM)} total={`≈ ${formatDistance(totals.plannedM)}`} ratio={ratio(totals.doneM, totals.plannedM)} className="lg:border-b lg:border-r" />
               <Progress label="Sessions" done={String(totals.sessionsDone)} total={String(totals.sessions)} ratio={ratio(totals.sessionsDone, totals.sessions)} className="max-lg:border-t lg:border-b" />
               <Progress label="Time" done={formatDuration(totals.doneSec)} total={formatDuration(totals.plannedSec)} ratio={ratio(totals.doneSec, totals.plannedSec)} className="max-lg:border-t lg:col-span-2" />
@@ -143,15 +166,15 @@ function Gauge({ totals }: { totals: PlanTotals }) {
 function Progress({ label, done, total, ratio: share, className = '' }: { label: string; done: string; total: string; ratio: number | null; className?: string }) {
   const width = share === null ? 0 : Math.min(100, Math.max(0, share * 100))
   return (
-    <div className={`py-2 max-lg:border-[#1E2330] lg:border-[#2A3140] lg:px-5 lg:py-3 lg:text-center ${className}`}>
+    <div className={`py-2 max-lg:border-[#1E2330] lg:border-[#2A3140] lg:px-2 lg:py-2.5 lg:text-center ${className}`}>
       <div className="flex items-baseline justify-between gap-2 lg:block">
         <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#9AA3B5]">{label}</p>
         <p className="flex flex-wrap items-baseline gap-x-1 tabular-nums lg:mt-1 lg:justify-center">
-          <span className="font-display text-base font-semibold lg:text-xl">{done}</span>
+          <span className="font-display text-base font-semibold lg:text-lg">{done}</span>
           <span className="text-xs text-[#9AA3B5]">/ {total}</span>
         </p>
       </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1E2330] lg:mx-auto lg:max-w-[10rem]" role="presentation">
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1E2330] lg:mx-auto lg:max-w-[7rem]" role="presentation">
         <div className="h-full rounded-full" style={{ width: `${width}%`, background: GOOD, transition: 'width 0.4s ease' }} />
       </div>
     </div>
@@ -159,6 +182,8 @@ function Progress({ label, done, total, ratio: share, className = '' }: { label:
 }
 
 function VolumeChart({ rows, raceLabel }: { rows: Row[]; raceLabel: string | null }) {
+  const [mode, setMode] = useState<Mode>('blocks')
+  const bands = mode === 'blocks' ? null : ZONE_BANDS[mode]
   const used = useMemo(() => {
     const seen = new Map<string, BlockKind>()
     for (const row of rows) if (row.kind && !seen.has(row.kind.id)) seen.set(row.kind.id, row.kind)
@@ -174,18 +199,22 @@ function VolumeChart({ rows, raceLabel }: { rows: Row[]; raceLabel: string | nul
         <h2 id="volume-title" className="font-display text-lg font-semibold">
           Estimated km per week
         </h2>
-        <p className="text-xs text-[#9AA3B5]">
-          {rows.length} {rows.length === 1 ? 'week' : 'weeks'}
-        </p>
+        <Segment label="Bars" value={mode} options={MODES} onChange={setMode} />
       </div>
 
       <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[#C5CAD3]">
-        {used.map((kind) => (
-          <Key key={kind.id} swatch={<span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: kind.color }} />}>
-            {kind.label}
-          </Key>
-        ))}
-        {plain ? (
+        {bands
+          ? bands.map((band) => (
+              <Key key={band.key} swatch={<span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: band.color }} />}>
+                {band.label}
+              </Key>
+            ))
+          : used.map((kind) => (
+              <Key key={kind.id} swatch={<span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: kind.color }} />}>
+                {kind.label}
+              </Key>
+            ))}
+        {!bands && plain ? (
           <Key swatch={<span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: NO_BLOCK }} />}>No block</Key>
         ) : null}
         <Key swatch={<span className="flex items-center"><span className="h-px w-2 bg-[#E8EAF0]" /><span className="h-2 w-2 rounded-full border border-[#10131A] bg-[#E8EAF0]" /><span className="h-px w-2 bg-[#E8EAF0]" /></span>}>Done</Key>
@@ -199,15 +228,30 @@ function VolumeChart({ rows, raceLabel }: { rows: Row[]; raceLabel: string | nul
         xKey="label"
         current={currentLabel}
         summary={summary}
+        className="mt-4 h-56 sm:h-72 lg:h-[22rem]"
         yWidth={34}
         xInterval={0}
-        bars={[{ key: 'plannedKm', color: NO_BLOCK, colorOf: (row) => row.kind?.color ?? NO_BLOCK }]}
+        bars={
+          bands
+            ? bands.map((band, index) => ({
+                key: `zones.${band.key}`,
+                color: band.color,
+                stackId: 'zone',
+                radius: index === bands.length - 1 ? ([4, 4, 0, 0] as [number, number, number, number]) : undefined,
+              }))
+            : [{ key: 'plannedKm', color: NO_BLOCK, colorOf: (row) => row.kind?.color ?? NO_BLOCK }]
+        }
         lines={[{ key: 'doneKm', color: DONE }]}
         markers={raceLabel ? [{ x: raceLabel, label: 'Run', color: GOOD }] : undefined}
         // Weeks gone are shaded, this week is outlined.
         rowStyle={(row) => ({ opacity: row.state === 'past' ? 0.42 : row.state === 'current' ? 1 : 0.9, outline: row.state === 'current' ? '#FFFFFF' : undefined })}
-        tooltip={(row) => <VolumeTip row={row} />}
+        tooltip={(row) => <VolumeTip row={row} bands={bands} />}
       />
+      {bands ? (
+        <p className="mt-2 text-xs text-[#9AA3B5]">
+          Zones are estimated from the pace of each step. A hard step with no pace follows the type of its session: VMA zone 5, Threshold and Grimpette zone 4, Long Run zone 2, EF zone 1.
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -221,7 +265,7 @@ function Key({ swatch, children }: { swatch: ReactNode; children: ReactNode }) {
   )
 }
 
-function VolumeTip({ row }: { row: Row }) {
+function VolumeTip({ row, bands }: { row: Row; bands: ZoneBand[] | null }) {
   const monday = parseDay(row.week)
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6)
@@ -256,6 +300,17 @@ function VolumeTip({ row }: { row: Row }) {
           </dd>
         </dl>
       )}
+      {bands && zoneTotal(row) > 0 ? (
+        <ul className="mt-2 space-y-0.5 border-t border-[#1E2330] pt-2">
+          {bands.map((band) => (
+            <li key={band.key} className="flex items-center gap-2 tabular-nums text-[#C5CAD3]">
+              <span className="h-2 w-2 rounded-[2px]" style={{ background: band.color }} />
+              <span className="flex-1">{band.label}</span>
+              {Math.round((row.zones[band.key] / zoneTotal(row)) * 100)}%
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </>
   )
 }
