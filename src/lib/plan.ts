@@ -1,6 +1,8 @@
 import { localDayKey } from './calendar'
 import { formatDistance } from './format'
 import { formatDayInput, parseDay, startOfWeek } from './period'
+import { noteChange, profileKey } from './profileData'
+import { loadTombstones, stableJson, stampItems, storeTombstones, tombstoneRemoved } from './stamp'
 import type { Activity } from '../types'
 
 export const SESSION_TAGS = [
@@ -40,6 +42,8 @@ export type PlannedSession = {
   blocks: Block[]
   status: SessionStatus
   activityId: string | null
+  /** When the session last changed on this device. Drive keeps the newer copy of a session. */
+  updatedAt?: string
 }
 
 export type Totals = { seconds: number | null; meters: number | null }
@@ -192,6 +196,7 @@ function cleanSession(raw: unknown): PlannedSession | null {
     blocks,
     status,
     activityId: status === 'done' && typeof row.activityId === 'string' ? row.activityId : null,
+    updatedAt: typeof row.updatedAt === 'string' && !Number.isNaN(Date.parse(row.updatedAt)) ? row.updatedAt : undefined,
   }
 }
 
@@ -205,23 +210,37 @@ export function normalizePlan(raw: unknown): PlannedSession[] {
   return [...byId.values()]
 }
 
-export function loadPlan(): PlannedSession[] {
+export function loadPlan(profileId: string = DEFAULT_PLAN_ID): PlannedSession[] {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(profileKey(KEY, profileId))
     return raw ? normalizePlan(JSON.parse(raw)) : []
   } catch {
     return []
   }
 }
 
-export function savePlan(sessions: PlannedSession[]): PlannedSession[] {
+/** Stores sessions with the stamps they already carry. Used for copies that come from Drive. */
+export function storePlan(profileId: string, sessions: PlannedSession[]): PlannedSession[] {
   const next = normalizePlan(sessions)
   try {
-    localStorage.setItem(KEY, JSON.stringify(next))
+    localStorage.setItem(profileKey(KEY, profileId), JSON.stringify(next))
   } catch {
     /* the plan still applies for this visit */
   }
   return next
+}
+
+/** A local save: changed sessions get the time of this save, removed ones a tombstone. */
+export function savePlan(profileId: string, sessions: PlannedSession[]): PlannedSession[] {
+  const prev = loadPlan(profileId)
+  const next = normalizePlan(sessions)
+  const now = new Date().toISOString()
+  const stamped = stampItems(prev, next, now)
+  const tombs = loadTombstones(profileId)
+  storeTombstones(profileId, { ...tombs, sessions: tombstoneRemoved(tombs.sessions, prev.map((item) => item.id), stamped.map((item) => item.id), now) })
+  const stored = storePlan(profileId, stamped)
+  if (stableJson(prev) !== stableJson(stamped)) noteChange(profileId)
+  return stored
 }
 
 /**

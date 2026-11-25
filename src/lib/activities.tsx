@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { localDayKey } from './calendar'
 import { connectGarmin as createGarminState, syncGarmin as runGarminSync } from './garmin'
-import { clearBundle, clearGarmin, loadBundle, loadGarmin, saveBundle, saveGarmin, type SavedBundle } from './store'
+import { clearBundle, clearGarmin, clearZip, loadBundle, loadGarmin, saveBundle, saveGarmin, saveZip, type SavedBundle } from './store'
 import { readStravaZip, type ImportProgress } from './strava'
 import type { Activity, GarminState, ImportReport } from '../types'
 
@@ -12,6 +12,8 @@ type ActivitiesContextValue = {
   progress: ImportProgress | null
   error: string | null
   importFile: (file: File | undefined) => void
+  /** Reads a Strava zip blob into the activities of the active profile, the same way a zip import does. */
+  importArchive: (file: Blob) => Promise<void>
   clear: () => void
   /** Garmin login of the active profile. */
   garmin: GarminState | null
@@ -41,10 +43,11 @@ function zipDaysOf(activities: Activity[]): Set<string> {
 }
 
 /**
- * Activities are shared by every profile. The Garmin login is per profile:
+ * Activities are shared by every local profile. A profile saved to Drive has its own `bundleKey`,
+ * so its activities are loaded from its own bundle. The Garmin login is per profile:
  * `profileId` picks the one that is loaded, shown and synced.
  */
-export function ActivitiesProvider({ profileId, profileIds, children }: { profileId: string; profileIds: string[]; children: ReactNode }) {
+export function ActivitiesProvider({ profileId, profileIds, bundleKey, children }: { profileId: string; profileIds: string[]; bundleKey: string; children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [activities, setActivities] = useState<Activity[]>([])
   const [report, setReport] = useState<ImportReport | null>(null)
@@ -56,6 +59,7 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
 
   // Refs hold the latest values for async work (sync runs for minutes).
   const bundleRef = useRef<SavedBundle>({ activities: [], report: null })
+  const bundleKeyRef = useRef(bundleKey)
   const garminRef = useRef<GarminState | null>(null)
   const profileRef = useRef(profileId)
   const profileIdsRef = useRef(profileIds)
@@ -63,12 +67,13 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
   // Profiles whose login was removed while a sync was still running. Their progress is not saved again.
   const droppedRef = useRef(new Set<string>())
   profileIdsRef.current = profileIds
+  bundleKeyRef.current = bundleKey
 
   const persist = useCallback(async (next: SavedBundle) => {
     bundleRef.current = next
     setActivities(next.activities)
     setReport(next.report)
-    await saveBundle(next)
+    await saveBundle(next, bundleKeyRef.current)
   }, [])
 
   /** Saves the progress of one profile. The screen only follows it while that profile is the active one. */
@@ -103,17 +108,22 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
     }
   }, [persist, saveGarminState])
 
+  // The bundle follows the active profile. Switching profile loads that profile's activities.
   useEffect(() => {
     let cancelled = false
-    loadBundle()
+    bundleRef.current = { activities: [], report: null }
+    setActivities([])
+    setReport(null)
+    setError(null)
+    loadBundle(bundleKey)
       .then((bundle) => {
-        if (cancelled || !bundle) return
+        if (cancelled) return
         bundleRef.current = {
-          activities: bundle.activities.map((activity) => ({ ...activity, stream: activity.stream ?? [] })),
-          report: bundle.report,
+          activities: (bundle?.activities ?? []).map((activity) => ({ ...activity, stream: activity.stream ?? [] })),
+          report: bundle?.report ?? null,
         }
         setActivities(bundleRef.current.activities)
-        setReport(bundle.report)
+        setReport(bundleRef.current.report)
       })
       .catch(() => {
         if (!cancelled) setError('Saved sessions could not be opened. You can import the zip again.')
@@ -124,7 +134,7 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [bundleKey])
 
   // The Garmin login follows the profile. It loads after the activities, so a sync sees what is already known.
   useEffect(() => {
@@ -149,35 +159,46 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
     }
   }, [profileId, ready, runSync])
 
-  const importFile = useCallback((file: File | undefined) => {
-    if (!file) return
-    if (!file.name.toLowerCase().endsWith('.zip')) {
-      setError('Choose a Strava export .zip file.')
-      return
-    }
-    setError(null)
-    setProgress({ done: 0, total: 1, label: 'Opening zip' })
-    void readStravaZip(file, setProgress, 'zip')
-      .then(async (result) => {
-        // The zip replaces the archive. Garmin rows survive only on days the zip does not cover.
-        const zipDays = zipDaysOf(result.activities)
-        const kept = bundleRef.current.activities.filter((activity) => {
-          if (activity.source !== 'garmin') return false
-          const day = localDayKey(activity.date)
-          return day !== null && !zipDays.has(day)
+  /** The zip replaces the archive of the active profile. Garmin rows survive only on days the zip does not cover. */
+  const importArchive = useCallback(
+    async (file: Blob) => {
+      const key = bundleKeyRef.current
+      const result = await readStravaZip(file, setProgress, 'zip')
+      const zipDays = zipDaysOf(result.activities)
+      const kept = bundleRef.current.activities.filter((activity) => {
+        if (activity.source !== 'garmin') return false
+        const day = localDayKey(activity.date)
+        return day !== null && !zipDays.has(day)
+      })
+      await saveZip(file, key)
+      await persist({ activities: [...result.activities, ...kept], report: result.report })
+    },
+    [persist],
+  )
+
+  const importFile = useCallback(
+    (file: File | undefined) => {
+      if (!file) return
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        setError('Choose a Strava export .zip file.')
+        return
+      }
+      setError(null)
+      setProgress({ done: 0, total: 1, label: 'Opening zip' })
+      void importArchive(file)
+        .catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : 'The zip could not be read.')
         })
-        await persist({ activities: [...result.activities, ...kept], report: result.report })
-      })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : 'The zip could not be read.')
-      })
-      .finally(() => {
-        setProgress(null)
-      })
-  }, [persist])
+        .finally(() => {
+          setProgress(null)
+        })
+    },
+    [importArchive],
+  )
 
   const clear = useCallback(() => {
-    void clearBundle()
+    void clearBundle(bundleKeyRef.current)
+    void clearZip(bundleKeyRef.current)
     bundleRef.current = { activities: [], report: null }
     setActivities([])
     setReport(null)
@@ -231,6 +252,7 @@ export function ActivitiesProvider({ profileId, profileIds, children }: { profil
         progress,
         error,
         importFile,
+        importArchive,
         clear,
         garmin,
         garminSyncing: syncingId === profileId,

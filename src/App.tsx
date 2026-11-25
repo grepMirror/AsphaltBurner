@@ -8,6 +8,11 @@ import { LoadPage } from './pages/LoadPage'
 import { PlannerPage } from './pages/PlannerPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, saveProfiles, selectProfile, updateHr, type ProfileBook } from './lib/profiles'
+import { DRIVE_LABEL, DRIVE_TONE } from './components/DriveCard'
+import { DriveIcon } from './components/icons'
+import { DriveProvider, useDrive, type DriveStatus } from './lib/drive/DriveProvider'
+import { noteChange, removePlannerData } from './lib/profileData'
+import { bundleKeyOf, clearBundle, clearZip } from './lib/store'
 
 type PagePath = '/' | '/load' | '/activities' | '/profile' | '/planner'
 
@@ -49,17 +54,39 @@ export function App() {
   }
 
   const [book, setBook] = useState(loadProfiles)
-  const changeBook = (next: ProfileBook) => setBook(saveProfiles(next))
+  // Bumped when a sync changes the local data under the screen, so the pages read it again.
+  const [revision, setRevision] = useState(0)
+  /** An edit (name, heart rate) is sent to Drive. Choosing, creating or removing a profile is not. */
+  const changeBook = (next: ProfileBook, silent = false) => {
+    const saved = saveProfiles(next)
+    setBook(saved)
+    if (!silent) noteChange(saved.activeId)
+  }
 
   return (
-    <ActivitiesProvider profileId={book.activeId} profileIds={book.profiles.map((profile) => profile.id)}>
-      <Shell path={path} go={go} book={book} onBook={changeBook} />
+    <ActivitiesProvider profileId={book.activeId} profileIds={book.profiles.map((profile) => profile.id)} bundleKey={bundleKeyOf(activeProfile(book))}>
+      <DriveProvider book={book} onBook={changeBook} onPulled={() => setRevision((value) => value + 1)}>
+        <Shell path={path} go={go} book={book} onBook={changeBook} revision={revision} />
+      </DriveProvider>
     </ActivitiesProvider>
   )
 }
 
-function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath) => void; book: ProfileBook; onBook: (book: ProfileBook) => void }) {
+function Shell({
+  path,
+  go,
+  book,
+  onBook,
+  revision,
+}: {
+  path: PagePath
+  go: (href: PagePath) => void
+  book: ProfileBook
+  onBook: (book: ProfileBook, silent?: boolean) => void
+  revision: number
+}) {
   const { progress, error, forgetProfile } = useActivities()
+  const drive = useDrive()
   const [profileOpen, setProfileOpen] = useState(false)
   const profile = activeProfile(book)
   const { maxHr, restHr, method, zones } = profile
@@ -83,7 +110,7 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
             {nav(false)}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <ImportZip />
+            {profile.drive ? <DriveBadge status={drive.status} onOpen={() => setProfileOpen(true)} /> : null}
             <ProfileButton name={profile.name} onOpen={() => setProfileOpen(true)} />
           </div>
         </div>
@@ -117,19 +144,26 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
       ) : null}
       {path === '/planner' ? (
         <main>
-          <PlannerPage maxHr={maxHr} restHr={restHr} method={method} split={zones} />
+          <PlannerPage key={`${book.activeId}:${revision}`} profileId={book.activeId} maxHr={maxHr} restHr={restHr} method={method} split={zones} />
         </main>
       ) : null}
       {profileOpen ? (
         <ProfileModal
           book={book}
-          onSelect={(id) => onBook(selectProfile(book, id))}
-          onCreate={() => onBook(addProfile(book).book)}
+          onSelect={(id) => onBook(selectProfile(book, id), true)}
+          onCreate={() => onBook(addProfile(book).book, true)}
           onRename={(id, name) => onBook(renameProfile(book, id, name))}
           onHr={(id, patch) => onBook(updateHr(book, id, patch))}
           onDelete={(id) => {
+            const removed = book.profiles.find((item) => item.id === id)
             void forgetProfile(id)
-            onBook(removeProfile(book, id))
+            removePlannerData(id)
+            // Only a profile with its own activities removes them. The shared bundle stays for the others.
+            if (removed?.ownBundle) {
+              void clearBundle(bundleKeyOf(removed))
+              void clearZip(bundleKeyOf(removed))
+            }
+            onBook(removeProfile(book, id), true)
           }}
           onClose={() => setProfileOpen(false)}
         />
@@ -141,23 +175,20 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
   )
 }
 
-function ImportZip() {
-  const { importFile, progress } = useActivities()
-
+/** Header indicator of the Google Drive link of the active profile. It opens the profile popup. */
+function DriveBadge({ status, onOpen }: { status: DriveStatus; onOpen: () => void }) {
   return (
-    <label className="cursor-pointer whitespace-nowrap rounded-md border border-sky-300/40 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">
-      {progress ? 'Importing…' : 'Import zip'}
-      <input
-        className="sr-only"
-        type="file"
-        accept=".zip,application/zip"
-        disabled={progress !== null}
-        onChange={(event) => {
-          importFile(event.target.files?.[0])
-          event.target.value = ''
-        }}
-      />
-    </label>
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={`Google Drive: ${DRIVE_LABEL[status]}`}
+      title={`Google Drive: ${DRIVE_LABEL[status]}`}
+      onClick={onOpen}
+      className="flex h-9 items-center gap-2 rounded-lg px-2 hover:bg-white/5"
+    >
+      <DriveIcon />
+      <span className={`hidden text-xs sm:block ${DRIVE_TONE[status]}`}>{DRIVE_LABEL[status]}</span>
+    </button>
   )
 }
 
