@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { InfoChips, type InfoChip } from './InfoChips'
 import { SportIcon } from './SportIcon'
 import { formatDistance, formatDuration, formatPaceOrSpeed, formatWhen } from '../lib/format'
 import {
@@ -19,6 +20,8 @@ import {
   stepLabel,
   tagOf,
   totalsText,
+  weekFacts,
+  weekRuns,
   blocksSummary,
   type Block,
   type Measure,
@@ -53,6 +56,7 @@ export function SessionEditor({
   isNew,
   plan,
   pace,
+  activities,
   onBack,
   onSave,
   onDelete,
@@ -61,6 +65,8 @@ export function SessionEditor({
   isNew: boolean
   plan: PlannedSession[]
   pace: ZonePace | null
+  /** Runs by id, to show what was really done last week. */
+  activities: ReadonlyMap<string, Activity>
   onBack: () => void
   onSave: (session: PlannedSession) => void
   onDelete: () => void
@@ -93,9 +99,9 @@ export function SessionEditor({
       </div>
       <WorkoutStrip blocks={draft.blocks} tag={draft.tag} kmh={kmh} className="mt-4" />
       {isSimple(draft.tag) ? (
-        <SimpleEditor draft={draft} plan={plan} pace={pace} onBlocks={setBlocks} />
+        <SimpleEditor draft={draft} plan={plan} pace={pace} activities={activities} onBlocks={setBlocks} />
       ) : (
-        <WorkoutCreator draft={draft} plan={plan} pace={pace} onBlocks={setBlocks} />
+        <WorkoutCreator draft={draft} plan={plan} pace={pace} activities={activities} onBlocks={setBlocks} />
       )}
       <div className="mt-8 flex flex-col gap-2">
         <button type="button" onClick={() => onSave(draft)} className="w-full rounded-2xl bg-[#E8EAF0] py-3 text-sm font-semibold text-[#0B0D12]">
@@ -208,12 +214,15 @@ function StepList({ block, tag }: { block: Block; tag: SessionTag }) {
   )
 }
 
-function SimpleEditor({ draft, plan, pace, onBlocks }: { draft: PlannedSession; plan: PlannedSession[]; pace: ZonePace | null; onBlocks: (blocks: Block[]) => void }) {
+function SimpleEditor({ draft, plan, pace, activities, onBlocks }: { draft: PlannedSession; plan: PlannedSession[]; pace: ZonePace | null; activities: ReadonlyMap<string, Activity>; onBlocks: (blocks: Block[]) => void }) {
   const kmh = pace?.mid ?? null
   const head = draft.blocks[0]?.steps[0]
   const current = head && !isBlock(head) ? head : step('active', 'time', 2700)
   const setStep = (next: Step) => onBlocks([{ repeat: 1, steps: [next] }])
-  const mean = lastWeekMean(plan, draft.week, draft.tag, kmh, draft.id)
+  const mean = lastWeekMean(plan, draft.week, draft.tag, kmh, draft.id, (id) => {
+    const run = activities.get(id)
+    return run ? { seconds: run.movingSec, meters: run.distanceM } : null
+  })
   const label = tagOf(draft.tag).label
   const byTime = current.by === 'time'
 
@@ -234,7 +243,8 @@ function SimpleEditor({ draft, plan, pace, onBlocks }: { draft: PlannedSession; 
             <>
               <span className="tabular-nums">avg {mean.seconds != null ? formatSpan(mean.seconds) : '—'}</span>
               <span className="text-[#9AA3B5]">
-                {mean.meters != null ? ` · ≈ ${formatDistance(mean.meters)}` : ''} · {mean.count} {mean.count === 1 ? 'session' : 'sessions'}
+                {mean.meters != null ? ` · ${mean.done === mean.count ? '' : '≈ '}${formatDistance(mean.meters)}` : ''} · {mean.count} {mean.count === 1 ? 'session' : 'sessions'}
+                {mean.done > 0 ? ` · ${mean.done === mean.count ? 'done' : `${mean.done} done`}` : mean.count > 0 ? ' · planned' : ''}
               </span>
             </>
           ) : (
@@ -310,15 +320,103 @@ function SimpleEditor({ draft, plan, pace, onBlocks }: { draft: PlannedSession; 
   )
 }
 
-function WorkoutCreator({ draft, plan, pace, onBlocks }: { draft: PlannedSession; plan: PlannedSession[]; pace: ZonePace | null; onBlocks: (blocks: Block[]) => void }) {
+/** Seconds as a runner reads them: whole minutes once past ten minutes. */
+function spanOf(seconds: number): string {
+  return formatSpan(seconds >= 600 ? Math.round(seconds / 60) * 60 : seconds)
+}
+
+function runLine(run: Activity): string {
+  return `${spanOf(run.movingSec)} · ${formatDistance(run.distanceM)} · ${formatPaceOrSpeed(run)} · ${Math.round(run.elevationM)} m`
+}
+
+/** The main facts of a session for a chip card: what was realized when a run is linked, the plan otherwise. */
+function SessionBrief({ session, run, kmh }: { session: PlannedSession; run: Activity | null; kmh: number | null }) {
+  const totals = totalsText(session.blocks, session.tag, kmh)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold" style={{ color: TAG_COLOR[session.tag] }}>
+          {tagOf(session.tag).label}
+        </span>
+        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#9AA3B5]">{session.status === 'done' ? 'Completed' : 'Planned'}</span>
+      </p>
+      {run ? (
+        <>
+          <p className="truncate text-[#C5CAD3]">{run.name}</p>
+          <p className="tabular-nums text-[#E8EAF0]">{runLine(run)}</p>
+          <p className="tabular-nums text-[#9AA3B5]">
+            Planned {totals.time} · {totals.distance}
+          </p>
+        </>
+      ) : (
+        <>
+          {isSimple(session.tag) ? null : <p className="text-[#C5CAD3]">{blocksSummary(session.blocks)}</p>}
+          <p className="tabular-nums text-[#E8EAF0]">
+            {totals.time} · {totals.distance}
+          </p>
+          {session.status === 'done' ? <p className="text-[#9AA3B5]">No run linked</p> : null}
+        </>
+      )}
+    </div>
+  )
+}
+
+function WorkoutCreator({
+  draft,
+  plan,
+  pace,
+  activities,
+  onBlocks,
+}: {
+  draft: PlannedSession
+  plan: PlannedSession[]
+  pace: ZonePace | null
+  activities: ReadonlyMap<string, Activity>
+  onBlocks: (blocks: Block[]) => void
+}) {
   const kmh = pace?.mid ?? null
+  const realized = (session: PlannedSession) => (session.status === 'done' && session.activityId ? (activities.get(session.activityId) ?? null) : null)
   const color = TAG_COLOR[draft.tag]
   const previous = shiftWeek(draft.week, -1)
+  const [showLast, setShowLast] = useState(false)
+  // The whole of last week, counted like the week list: the plan for a planned session, the run for a completed one.
+  const lastWeek = weekFacts(plan, previous, kmh, [...activities.values()])
   const shared = draft.tag === 'vma' || draft.tag === 'threshold'
   const templates = plan
     .filter((session) => session.week === previous && (shared ? session.tag === 'vma' || session.tag === 'threshold' : session.tag === draft.tag) && session.status !== 'cancelled' && session.id !== draft.id)
     .slice(0, 8)
   const zoneHint = pace ? paceText(pace.mid) : undefined
+
+  // Everything of this week, whatever the type: planned sessions, completed ones, and runs not linked to a session.
+  const linked = new Set(plan.map((session) => session.activityId).filter((id): id is string => id !== null))
+  const chips: InfoChip[] = [
+    ...plan
+      .filter((session) => session.week === draft.week && session.status !== 'cancelled' && session.id !== draft.id)
+      .map((session) => ({
+        id: session.id,
+        label: tagOf(session.tag).label,
+        color: TAG_COLOR[session.tag],
+        done: session.status === 'done',
+        body: <SessionBrief session={session} run={realized(session)} kmh={kmh} />,
+      })),
+    ...weekRuns([...activities.values()], draft.week)
+      .filter((run) => !linked.has(run.id))
+      .map((run) => ({
+        id: run.id,
+        label: 'Run',
+        color: '#9AA3B5',
+        done: true,
+        body: (
+          <div className="flex flex-col gap-1.5">
+            <p className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-sm font-semibold text-[#E8EAF0]">{run.name}</span>
+              <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9AA3B5]">Not planned</span>
+            </p>
+            <p className="tabular-nums text-[#E8EAF0]">{runLine(run)}</p>
+          </div>
+        ),
+      })),
+  ]
 
   const setBlock = (index: number, block: Block) => onBlocks(draft.blocks.map((item, itemIndex) => (itemIndex === index ? block : item)))
   const dropBlock = (index: number) => onBlocks(draft.blocks.filter((_, itemIndex) => itemIndex !== index))
@@ -333,13 +431,24 @@ function WorkoutCreator({ draft, plan, pace, onBlocks }: { draft: PlannedSession
 
   return (
     <>
-      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`}>
+      <Section label={shared ? 'VMA & Threshold last week' : `${tagOf(draft.tag).label} last week`} fold={{ open: showLast, onToggle: () => setShowLast((value) => !value) }}
+        action={
+          lastWeek.count > 0 ? (
+            <span title="Everything of last week, planned and completed" className="text-xs font-semibold tabular-nums text-[#C5CAD3]">
+              {lastWeek.meters == null ? '—' : `${lastWeek.estimated ? '≈ ' : ''}${formatDistance(lastWeek.meters)}`}
+              <span className="px-1.5 text-[#5A6275]">·</span>
+              {lastWeek.seconds == null ? '—' : formatDuration(lastWeek.seconds)}
+            </span>
+          ) : null
+        }
+      >
         {templates.length === 0 ? (
           <p className="text-sm text-[#9AA3B5]">Nothing to reuse from last week.</p>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             {templates.map((session) => {
               const totals = totalsText(session.blocks, session.tag, kmh)
+              const run = realized(session)
               return (
                 <button
                   key={session.id}
@@ -358,12 +467,24 @@ function WorkoutCreator({ draft, plan, pace, onBlocks }: { draft: PlannedSession
                     </span>
                     <span className="font-semibold text-[#E8EAF0] opacity-60 group-hover:opacity-100">Use</span>
                   </span>
+                  {run ? (
+                    <span className="flex items-center gap-1.5 text-xs tabular-nums text-[#9DDBC0]">
+                      <CheckIcon />
+                      Realized {spanOf(run.movingSec)} · {formatDistance(run.distanceM)}
+                    </span>
+                  ) : null}
                 </button>
               )
             })}
           </div>
         )}
       </Section>
+
+      {chips.length > 0 ? (
+        <Section label="This week · hover or hold for the details">
+          <InfoChips chips={chips} />
+        </Section>
+      ) : null}
 
       <Section label="Workout">
         <div className="flex flex-col gap-2">
@@ -647,7 +768,7 @@ function kindColor(kind: StepKind, tag: SessionTag): string {
 
 export function TagPicker({ value, onChange }: { value: SessionTag; onChange: (tag: SessionTag) => void }) {
   return (
-    <div role="radiogroup" aria-label="Session type" className="flex gap-2 overflow-x-auto pb-1">
+    <div role="radiogroup" aria-label="Session type" className="flex flex-wrap gap-2">
       {SESSION_TAGS.map((item) => {
         const on = value === item.id
         return (
@@ -657,7 +778,7 @@ export function TagPicker({ value, onChange }: { value: SessionTag; onChange: (t
             role="radio"
             aria-checked={on}
             onClick={() => onChange(item.id)}
-            className="shrink-0 rounded-full px-4 py-2 text-sm font-semibold"
+            className="rounded-full px-4 py-2 text-sm font-semibold"
             style={on ? { background: TAG_COLOR[item.id], color: '#0B0D12' } : { boxShadow: 'inset 0 0 0 1px #262C3B', color: '#C5CAD3' }}
           >
             {item.label}
@@ -777,14 +898,26 @@ function Toggle<T extends string>({ label, value, options, onChange, small = fal
   )
 }
 
-function Section({ label, action, children }: { label: string; action?: ReactNode; children: ReactNode }) {
+/** With `fold`, the title is a button that shows or hides the content. */
+function Section({ label, action, fold, children }: { label: string; action?: ReactNode; fold?: { open: boolean; onToggle: () => void }; children: ReactNode }) {
   return (
     <section className="mt-7">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{label}</h2>
+      <div className={`flex items-center justify-between ${fold && !fold.open ? '' : 'mb-3'}`}>
+        {fold ? (
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
+            <button type="button" aria-expanded={fold.open} onClick={fold.onToggle} className="flex items-center gap-1.5 uppercase tracking-[0.16em] hover:text-[#E8EAF0]">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition-transform ${fold.open ? 'rotate-90' : ''}`}>
+                <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
+              </svg>
+              {label}
+            </button>
+          </h2>
+        ) : (
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">{label}</h2>
+        )}
         {action}
       </div>
-      {children}
+      {fold && !fold.open ? null : children}
     </section>
   )
 }

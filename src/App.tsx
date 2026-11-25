@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Segment } from './components/Segment'
+import { PAGE_BOX } from './components/layout'
+import { useEffect, useState } from 'react'
+import { ProfileModal } from './components/ProfileModal'
 import { ActivitiesProvider, useActivities } from './lib/activities'
 import { ActivitiesPage } from './pages/ActivitiesPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { LoadPage } from './pages/LoadPage'
 import { PlannerPage } from './pages/PlannerPage'
 import { ProfilePage } from './pages/ProfilePage'
-import { DEFAULT_ZONES, loadHrMethod, loadMaxHr, loadRestHr, loadZones, reserveRest, saveHrMethod, saveMaxHr, saveRestHr, saveZones, zoneCutBpm, type HrMethod, type ZoneEdges } from './lib/intensity'
+import { activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, saveProfiles, selectProfile, updateHr, type ProfileBook } from './lib/profiles'
 
 type PagePath = '/' | '/load' | '/activities' | '/profile' | '/planner'
 
@@ -47,51 +48,22 @@ export function App() {
     setPath(href)
   }
 
-  const [maxHr, setMaxHr] = useState(loadMaxHr)
-  const [restHr, setRestHr] = useState(loadRestHr)
-  const [method, setMethod] = useState<HrMethod>(loadHrMethod)
-  const [zones, setZones] = useState<ZoneEdges>(loadZones)
-
-  const updateMaxHr = (value: number) => setMaxHr(saveMaxHr(value))
-  const updateRestHr = (value: number) => setRestHr(saveRestHr(value))
-  const updateMethod = (value: HrMethod) => setMethod(saveHrMethod(value))
-  const updateZones = (values: number[]) => {
-    const next = saveZones(values)
-    setZones(next)
-    return next
-  }
+  const [book, setBook] = useState(loadProfiles)
+  const changeBook = (next: ProfileBook) => setBook(saveProfiles(next))
 
   return (
-    <ActivitiesProvider>
-      <Shell path={path} go={go} maxHr={maxHr} onMaxHr={updateMaxHr} restHr={restHr} onRestHr={updateRestHr} method={method} onMethod={updateMethod} zones={zones} onZones={updateZones} />
+    <ActivitiesProvider profileId={book.activeId} profileIds={book.profiles.map((profile) => profile.id)}>
+      <Shell path={path} go={go} book={book} onBook={changeBook} />
     </ActivitiesProvider>
   )
 }
 
-function Shell({
-  path,
-  go,
-  maxHr,
-  onMaxHr,
-  restHr,
-  onRestHr,
-  method,
-  onMethod,
-  zones,
-  onZones,
-}: {
-  path: PagePath
-  go: (href: PagePath) => void
-  maxHr: number
-  onMaxHr: (value: number) => void
-  restHr: number
-  onRestHr: (value: number) => void
-  method: HrMethod
-  onMethod: (value: HrMethod) => void
-  zones: ZoneEdges
-  onZones: (values: number[]) => ZoneEdges
-}) {
-  const { progress, error } = useActivities()
+function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath) => void; book: ProfileBook; onBook: (book: ProfileBook) => void }) {
+  const { progress, error, forgetProfile } = useActivities()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profile = activeProfile(book)
+  const { maxHr, restHr, method, zones } = profile
+
   const nav = (tab: boolean) =>
     PAGES.map((page) => (
       <NavItem key={page.href} href={page.href} active={path === page.href} onNavigate={go} tab={tab}>
@@ -102,7 +74,7 @@ function Shell({
   return (
     <div className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 pt-[env(safe-area-inset-top)] backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
+        <div className={`${PAGE_BOX} flex h-14 items-center gap-6`}>
           <div className="flex items-center gap-2 font-display text-sm font-semibold tracking-[0.16em]">
             <Mark />
             AsphaltBurner
@@ -112,13 +84,13 @@ function Shell({
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ImportZip />
-            <HrSettings maxHr={maxHr} onChange={onMaxHr} restHr={restHr} onRest={onRestHr} method={method} onMethod={onMethod} zones={zones} onZones={onZones} />
+            <ProfileButton name={profile.name} onOpen={() => setProfileOpen(true)} />
           </div>
         </div>
       </header>
-      {error ? <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-red-200">{error}</p> : null}
+      {error ? <p className={`${PAGE_BOX} pt-4 text-sm text-red-200`}>{error}</p> : null}
       {progress ? (
-        <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-white/70">
+        <p className={`${PAGE_BOX} pt-4 text-sm text-white/70`}>
           Reading {progress.done}/{progress.total}
           {progress.label ? ` · ${progress.label}` : ''}
         </p>
@@ -134,7 +106,7 @@ function Shell({
         </main>
       ) : null}
       {path === '/activities' ? (
-        <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">
+        <main className={`${PAGE_BOX} pb-16 pt-6`}>
           <ActivitiesPage maxHr={maxHr} restHr={restHr} method={method} split={zones} />
         </main>
       ) : null}
@@ -147,6 +119,20 @@ function Shell({
         <main>
           <PlannerPage maxHr={maxHr} restHr={restHr} method={method} split={zones} />
         </main>
+      ) : null}
+      {profileOpen ? (
+        <ProfileModal
+          book={book}
+          onSelect={(id) => onBook(selectProfile(book, id))}
+          onCreate={() => onBook(addProfile(book).book)}
+          onRename={(id, name) => onBook(renameProfile(book, id, name))}
+          onHr={(id, patch) => onBook(updateHr(book, id, patch))}
+          onDelete={(id) => {
+            void forgetProfile(id)
+            onBook(removeProfile(book, id))
+          }}
+          onClose={() => setProfileOpen(false)}
+        />
       ) : null}
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {nav(true)}
@@ -175,254 +161,28 @@ function ImportZip() {
   )
 }
 
-const ZONE_COLORS = ['#1F6F8B', '#5EB0C8', '#FACC15', '#FB923C', '#DC2626']
-
-function HrSettings({
-  maxHr,
-  onChange,
-  restHr,
-  onRest,
-  method,
-  onMethod,
-  zones,
-  onZones,
-}: {
-  maxHr: number
-  onChange: (value: number) => void
-  restHr: number
-  onRest: (value: number) => void
-  method: HrMethod
-  onMethod: (value: HrMethod) => void
-  zones: ZoneEdges
-  onZones: (values: number[]) => ZoneEdges
-}) {
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState(String(maxHr))
-  const [restDraft, setRestDraft] = useState(String(restHr))
-  const [zoneDraft, setZoneDraft] = useState(() => zones.map(String))
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    setDraft(String(maxHr))
-    setRestDraft(String(restHr))
-    setZoneDraft(zones.map(String))
-    const onPointer = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, maxHr, restHr, zones])
-
-  const apply = (raw: string) => {
-    setDraft(raw)
-    const parsed = Number(raw)
-    if (!Number.isFinite(parsed) || parsed < 100 || parsed > 230) return
-    onChange(parsed)
-  }
-
-  const commit = () => {
-    const parsed = Number(draft)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setDraft(String(maxHr))
-      return
-    }
-    onChange(parsed)
-    setDraft(String(Math.min(230, Math.max(100, Math.round(parsed)))))
-  }
-
-  const applyRest = (raw: string) => {
-    setRestDraft(raw)
-    const parsed = Number(raw)
-    if (!Number.isFinite(parsed) || parsed < 30 || parsed > 100) return
-    onRest(parsed)
-  }
-
-  const commitRest = () => {
-    const parsed = Number(restDraft)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setRestDraft(String(restHr))
-      return
-    }
-    onRest(parsed)
-    setRestDraft(String(Math.min(100, Math.max(30, Math.round(parsed)))))
-  }
-
-  const commitZones = () => {
-    const next = onZones(zoneDraft.map(Number))
-    setZoneDraft(next.map(String))
-  }
-
-  const parsed = zoneDraft.map(Number)
-  const shown = (parsed.every((value) => Number.isFinite(value)) ? parsed : [...zones]) as unknown as ZoneEdges
-  const cuts = zoneCutBpm(maxHr, shown, { restHr, method }).map((value: number) => Math.round(value))
-  const floor = method === 'karvonen' ? Math.round(reserveRest(maxHr, restHr)) : 0
-  const edges = [floor, ...cuts, maxHr]
-
+/** Header button showing who is active. It opens the profile popup. */
+function ProfileButton({ name, onOpen }: { name: string; onOpen: () => void }) {
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        className={`grid h-9 w-9 place-items-center rounded-lg border ${open ? 'border-white/40 bg-white/10 text-white' : 'border-white/10 text-white/70 hover:text-white'}`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Heart rate settings, ${method === 'karvonen' ? 'Karvonen' : 'percent of max'}, ${maxHr} bpm`}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Gear />
-      </button>
-      {open ? (
-        <div role="dialog" aria-label="Heart rate zones" className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-white/10 bg-[#12161E] p-3 shadow-xl">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-xs text-white/55">Intensity Zone :</span>
-            <Segment
-              label="Intensity"
-              value={method}
-              options={[
-                { id: 'max', label: '% max' },
-                { id: 'karvonen', label: 'FCR' },
-              ]}
-              onChange={onMethod}
-            />
-            {method === 'karvonen' ? <KarvonenNote /> : null}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <BpmField label="Max heart rate" icon={<HeartIcon />} value={draft} min={100} max={230} onChange={apply} onCommit={commit} />
-            {method === 'karvonen' ? <BpmField label="Resting heart rate" hint="Rest HR" icon={<RestIcon />} value={restDraft} min={30} max={100} onChange={applyRest} onCommit={commitRest} /> : null}
-          </div>
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {zoneDraft.map((value, index) => (
-              <label key={DEFAULT_ZONES[index]} className="text-center">
-                <span className="mb-1 flex items-center justify-center gap-1 text-[10px] text-white/50">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: ZONE_COLORS[index] }} />
-                  Z{index + 1}
-                </span>
-                <input
-                  type="number"
-                  min={40}
-                  max={99}
-                  inputMode="numeric"
-                  aria-label={`Zone ${index + 1} upper percent`}
-                  value={value}
-                  onChange={(event) => setZoneDraft((current) => current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)))}
-                  onBlur={commitZones}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur()
-                  }}
-                  className="w-full rounded-md border border-white/15 bg-black px-1 py-1 text-center text-sm tabular-nums text-white outline-none focus:border-white/40"
-                />
-              </label>
-            ))}
-          </div>
-          <div className="mt-3 flex h-2 overflow-hidden rounded-full" aria-hidden>
-            {ZONE_COLORS.map((color, index) => (
-              <span key={color} style={{ width: `${((edges[index + 1] - edges[index]) / Math.max(1, edges[edges.length - 1] - edges[0])) * 100}%`, background: color }} />
-            ))}
-          </div>
-          <div className="mt-1 flex text-[10px] tabular-nums text-white/40" aria-hidden>
-            {edges.slice(1).map((edge, index) => (
-              <span key={`${edge}-${index}`} className="min-w-0 text-right" style={{ width: `${((edges[index + 1] - edges[index]) / Math.max(1, edges[edges.length - 1] - edges[0])) * 100}%` }}>
-                {edge}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={`Profile: ${name}`}
+      title={name}
+      onClick={onOpen}
+      className="flex h-9 items-center gap-2 rounded-lg border border-white/10 px-2.5 text-white/70 hover:border-white/30 hover:text-white"
+    >
+      <ProfileIcon />
+      <span className="hidden max-w-[7rem] truncate text-sm sm:block">{name}</span>
+    </button>
   )
 }
 
-function BpmField({
-  label,
-  hint,
-  icon,
-  value,
-  min,
-  max,
-  onChange,
-  onCommit,
-}: {
-  label: string
-  hint?: string
-  icon: ReactNode
-  value: string
-  min: number
-  max: number
-  onChange: (value: string) => void
-  onCommit: () => void
-}) {
+function ProfileIcon() {
   return (
-    <label title={hint} className="group relative flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-white/[0.04] px-2 py-1.5">
-      {hint ? <span className="pointer-events-none absolute right-0 top-full z-10 mt-1 hidden whitespace-nowrap rounded bg-black px-1.5 py-0.5 text-[10px] text-white group-hover:block">{hint}</span> : null}
-      <span className="text-white/55">{icon}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        inputMode="numeric"
-        aria-label={label}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onCommit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur()
-        }}
-        className="w-full bg-transparent text-sm tabular-nums text-white outline-none"
-      />
-    </label>
-  )
-}
-
-function KarvonenNote() {
-  return (
-    <details className="relative">
-      <summary aria-label="Karvonen method" className="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full text-white/50 ring-1 ring-inset ring-white/25 marker:content-none [&::-webkit-details-marker]:hidden">
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
-          <path d="M8 7.2v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          <circle cx="8" cy="4.6" r="0.75" fill="currentColor" />
-        </svg>
-      </summary>
-      <div className="absolute right-0 top-7 z-20 w-72 max-w-[calc(100vw-2.5rem)] rounded-lg border border-white/15 bg-[#0b0e14] p-3 text-left text-xs leading-relaxed text-white/70 shadow-lg">
-        <p className="font-medium text-white/85">Target HR = resting HR + % × (max HR − resting HR)</p>
-        <ul className="mt-2 space-y-1.5">
-          <li>Zones are personal. Two runners with the same max but different resting rates (45 versus 70) do not share the same zones. Percent of max would give them the same thresholds.</li>
-          <li>It tracks real effort more closely. A percent of heart-rate reserve is close to a percent of VO2 reserve.</li>
-          <li>Resting heart rate changes over time, so comparing a long period is unreliable.</li>
-        </ul>
-      </div>
-    </details>
-  )
-}
-
-function HeartIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-      <path d="M8 13.2S2.6 9.6 2.6 6.3A2.7 2.7 0 0 1 8 5.2a2.7 2.7 0 0 1 5.4 1.1c0 3.3-5.4 6.9-5.4 6.9Z" />
-    </svg>
-  )
-}
-
-function RestIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-      <path d="M1.5 8h3l1.2-2.4 1.6 4.8L9 8h5.5" />
-    </svg>
-  )
-}
-
-function Gear() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="9" cy="9" r="2.2" />
-      <path d="M9 1.8v1.7M9 14.5v1.7M1.8 9h1.7M14.5 9h1.7M3.7 3.7l1.2 1.2M13.1 13.1l1.2 1.2M14.3 3.7l-1.2 1.2M4.9 13.1l-1.2 1.2" />
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="7" r="2.8" />
+      <path d="M4.5 16.8c.9-2.9 3-4.2 5.5-4.2s4.6 1.3 5.5 4.2" />
     </svg>
   )
 }
@@ -501,13 +261,13 @@ function NavIcon({ href }: { href: PagePath }) {
 
 function Mark() {
   return (
-    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white">
+    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0B0D12] shadow-[0_0_12px_rgba(251,146,60,0.4),inset_0_0_0_1px_rgba(250,204,21,0.35)]">
       <img
         src={`${import.meta.env.BASE_URL}icons/icon_asphaltbuner.svg`}
         alt=""
         width={28}
         height={28}
-        className="h-7 w-7"
+        className="h-7 w-7 drop-shadow-[0_0_4px_rgba(250,204,21,0.75)]"
       />
     </span>
   )

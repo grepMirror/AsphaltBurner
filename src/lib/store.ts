@@ -1,5 +1,7 @@
 import { normalizeSport } from './format'
-import type { Activity, ImportReport } from '../types'
+import { DEFAULT_PROFILE_ID, garminKeyOf } from './profiles'
+import { sportFromType } from './strava'
+import type { Activity, GarminState, ImportReport } from '../types'
 
 export type SavedBundle = {
   activities: Activity[]
@@ -34,7 +36,11 @@ export async function loadBundle(): Promise<SavedBundle | null> {
       }
       resolve({
         ...bundle,
-        activities: bundle.activities.map((activity) => ({ ...activity, sport: normalizeSport(String(activity.sport)) })),
+        // Re-derive from the type, so rows saved before a mapping fix (hiking counted as run) are corrected.
+        activities: bundle.activities.map((activity) => ({
+          ...activity,
+          sport: activity.type ? sportFromType(activity.type) : normalizeSport(String(activity.sport)),
+        })),
       })
     }
     request.onerror = () => reject(request.error)
@@ -57,4 +63,28 @@ export async function clearBundle(): Promise<void> {
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
   })
+}
+
+function request<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const pending = run(db.transaction(STORE, mode).objectStore(STORE))
+        pending.onsuccess = () => resolve(pending.result)
+        pending.onerror = () => reject(pending.error)
+      }),
+  )
+}
+
+/** Garmin key and sync progress live under their own key per profile, apart from the activity bundle. */
+export async function loadGarmin(profileId: string = DEFAULT_PROFILE_ID): Promise<GarminState | null> {
+  return (await request<GarminState | undefined>('readonly', (store) => store.get(garminKeyOf(profileId)))) ?? null
+}
+
+export async function saveGarmin(state: GarminState, profileId: string = DEFAULT_PROFILE_ID): Promise<void> {
+  await request('readwrite', (store) => store.put(state, garminKeyOf(profileId)))
+}
+
+export async function clearGarmin(profileId: string = DEFAULT_PROFILE_ID): Promise<void> {
+  await request('readwrite', (store) => store.delete(garminKeyOf(profileId)))
 }

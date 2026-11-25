@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
+import { PAGE_BOX } from '../components/layout'
 import { ChartFrame, svgLocalPoint } from '../components/ChartFrame'
 import { ChartNote } from '../components/ChartNote'
 import { Segment } from '../components/Segment'
@@ -26,7 +27,7 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
   const [tab, setTab] = useState<ProfileTab>('physiology')
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-16 pt-2">
+    <div className={`${PAGE_BOX} flex flex-col pb-16 pt-2`}>
       <h1 className="sr-only">Profile</h1>
       <div role="tablist" aria-label="Profile" className="flex gap-5 overflow-x-auto">
         {TABS.map((item) => {
