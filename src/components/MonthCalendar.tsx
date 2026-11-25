@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { PAGE_INNER } from './layout'
 import { Collapse } from './Collapse'
 import { SportIcon } from './SportIcon'
 import type { DayCell, MonthCalendar as MonthModel } from '../lib/calendar'
@@ -29,7 +30,7 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
     })
   }
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4 sm:gap-7">
+    <div className={`${PAGE_INNER} flex flex-col gap-4 sm:gap-7`}>
       <div className="flex flex-wrap items-center justify-between gap-3 sm:items-end sm:gap-5">
         <h1 className="font-display text-[26px] font-semibold leading-none tracking-tight sm:text-[44px]">{model.title}</h1>
         <div className="flex flex-wrap items-center gap-2">

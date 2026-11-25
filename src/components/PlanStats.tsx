@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { GRID, TICK } from './chartChrome'
+import { useMemo, type ReactNode } from 'react'
+import { BaseChart } from './BaseChart'
 import type { BlockKind } from '../lib/blocks'
 import { rangeLabel } from '../lib/calendar'
 import { formatDistance, formatDuration } from '../lib/format'
@@ -56,45 +55,49 @@ export function PlanStats({
     [data.weeks, kinds],
   )
 
+  // Phone: name, ring, Realized, chart. Desktop: name and Realized on the left, ring and chart on the right.
   return (
-    <div className="mt-2 flex flex-col gap-6">
-      <header className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
-        <div className="min-w-[16rem] max-w-xl flex-1">
-          <h1 className="font-display text-[34px] font-semibold leading-tight tracking-tight sm:text-[44px]">{info.name}</h1>
-          {info.raceDate ? (
-            <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
-              Run {parseDay(info.raceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-              {race ? ` · ${race}` : ''}
-            </p>
-          ) : null}
-          {info.objective ? <p className="mt-3 text-sm leading-relaxed text-[#9AA3B5]">{info.objective}</p> : null}
-        </div>
-        <Gauge totals={totals} />
+    <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-x-12">
+      <header className="col-span-2 min-w-0 lg:col-span-1 lg:col-start-1 lg:row-start-1">
+        <h1 className="font-display text-[34px] font-semibold leading-tight tracking-tight sm:text-[44px]">{info.name}</h1>
+        {info.raceDate ? (
+          <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
+            Run {parseDay(info.raceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {race ? ` · ${race}` : ''}
+          </p>
+        ) : null}
+        {info.objective ? <p className="mt-3 text-sm leading-relaxed text-[#9AA3B5]">{info.objective}</p> : null}
       </header>
+      <div className="flex lg:col-start-2 lg:row-start-1 lg:justify-end">
+        <Gauge totals={totals} />
+      </div>
 
       {rows.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-[#2A3140] px-5 py-8 text-center text-sm text-[#9AA3B5]">
+        <p className="rounded-2xl border border-dashed border-[#2A3140] px-5 py-8 text-center text-sm text-[#9AA3B5] col-span-2">
           No session yet. Plan sessions in the Plan tab and the volume of every week will show here.
         </p>
       ) : (
         <>
-          <section aria-labelledby="realized-title">
-            <h2 id="realized-title" className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
+          <section aria-labelledby="realized-title" className="min-w-0 rounded-2xl border border-[#1E2330] bg-[#10131A] px-3.5 py-2 lg:col-start-1 lg:row-start-2 lg:self-center lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
+            <h2 id="realized-title" className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#9AA3B5] max-lg:sr-only lg:text-center">
               Realized
             </h2>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Progress label="Distance" done={formatDistance(totals.doneM)} total={`≈ ${formatDistance(totals.plannedM)}`} ratio={ratio(totals.doneM, totals.plannedM)} />
-              <Progress label="Sessions" done={String(totals.sessionsDone)} total={String(totals.sessions)} ratio={ratio(totals.sessionsDone, totals.sessions)} />
-              <Progress label="Time" done={formatDuration(totals.doneSec)} total={formatDuration(totals.plannedSec)} ratio={ratio(totals.doneSec, totals.plannedSec)} />
+            {/* Desktop: a T. Distance and sessions side by side, a line under them, the time centered below. */}
+            <div className="grid lg:mx-auto lg:mt-3 lg:max-w-[22rem] lg:grid-cols-2">
+              <Progress label="Distance" done={formatDistance(totals.doneM)} total={`≈ ${formatDistance(totals.plannedM)}`} ratio={ratio(totals.doneM, totals.plannedM)} className="lg:border-b lg:border-r" />
+              <Progress label="Sessions" done={String(totals.sessionsDone)} total={String(totals.sessions)} ratio={ratio(totals.sessionsDone, totals.sessions)} className="max-lg:border-t lg:border-b" />
+              <Progress label="Time" done={formatDuration(totals.doneSec)} total={formatDuration(totals.plannedSec)} ratio={ratio(totals.doneSec, totals.plannedSec)} className="max-lg:border-t lg:col-span-2" />
             </div>
             {totals.unknown > 0 ? (
-              <p className="mt-3 text-xs text-[#9AA3B5]">
+              <p className="mt-2 text-xs text-[#9AA3B5]">
                 {totals.unknown} {totals.unknown === 1 ? 'session has' : 'sessions have'} no pace to estimate its distance yet, so {totals.unknown === 1 ? 'it is' : 'they are'} left out of the km. Import runs with heart rate to get one.
               </p>
             ) : null}
           </section>
 
-          <VolumeChart rows={rows} raceLabel={data.raceLabel} />
+          <div className="col-span-2 min-w-0 lg:col-span-1 lg:col-start-2 lg:row-start-2">
+            <VolumeChart rows={rows} raceLabel={data.raceLabel} />
+          </div>
         </>
       )}
     </div>
@@ -112,8 +115,8 @@ function Gauge({ totals }: { totals: PlanTotals }) {
   const radius = 34
   const length = 2 * Math.PI * radius
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-[#1E2330] bg-[#10131A] py-3 pl-3 pr-5" role="group" aria-label="Share of the plan realized">
-      <svg width="84" height="84" viewBox="0 0 84 84" aria-hidden="true" className="shrink-0 -rotate-90">
+    <div className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-[#1E2330] bg-[#10131A] p-3 text-center lg:flex-row lg:gap-4 lg:py-3 lg:pl-3 lg:pr-5 lg:text-left" role="group" aria-label="Share of the plan realized">
+      <svg viewBox="0 0 84 84" aria-hidden="true" className="h-[68px] w-[68px] shrink-0 -rotate-90 lg:h-[84px] lg:w-[84px]">
         <circle cx="42" cy="42" r={radius} fill="none" stroke="#1E2330" strokeWidth="7" />
         <circle
           cx="42"
@@ -128,24 +131,27 @@ function Gauge({ totals }: { totals: PlanTotals }) {
         />
       </svg>
       <div>
-        <p className="font-display text-3xl font-semibold leading-none tabular-nums">{percent === null ? '—' : `${percent}%`}</p>
-        <p className="mt-1.5 text-xs text-[#9AA3B5]">of the plan realized</p>
+        <p className="font-display text-2xl font-semibold leading-none tabular-nums lg:text-3xl">{percent === null ? '—' : `${percent}%`}</p>
+        <p className="mt-1 text-[11px] leading-tight text-[#9AA3B5] lg:mt-1.5 lg:text-xs">of the plan realized</p>
         {percent === null ? null : <p className="text-[11px] text-[#5A6275]">by {totals.basis}</p>}
       </div>
     </div>
   )
 }
 
-function Progress({ label, done, total, ratio: share }: { label: string; done: string; total: string; ratio: number | null }) {
+/** One KPI. On a phone a row of the card next to the ring, on a desktop a cell of the T. */
+function Progress({ label, done, total, ratio: share, className = '' }: { label: string; done: string; total: string; ratio: number | null; className?: string }) {
   const width = share === null ? 0 : Math.min(100, Math.max(0, share * 100))
   return (
-    <div className="rounded-2xl border border-[#1E2330] bg-[#10131A] p-4">
-      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9AA3B5]">{label}</p>
-      <p className="mt-2 flex flex-wrap items-baseline gap-x-1.5 tabular-nums">
-        <span className="font-display text-2xl font-semibold">{done}</span>
-        <span className="text-sm text-[#9AA3B5]">/ {total}</span>
-      </p>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#1E2330]" role="presentation">
+    <div className={`py-2 max-lg:border-[#1E2330] lg:border-[#2A3140] lg:px-5 lg:py-3 lg:text-center ${className}`}>
+      <div className="flex items-baseline justify-between gap-2 lg:block">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#9AA3B5]">{label}</p>
+        <p className="flex flex-wrap items-baseline gap-x-1 tabular-nums lg:mt-1 lg:justify-center">
+          <span className="font-display text-base font-semibold lg:text-xl">{done}</span>
+          <span className="text-xs text-[#9AA3B5]">/ {total}</span>
+        </p>
+      </div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#1E2330] lg:mx-auto lg:max-w-[10rem]" role="presentation">
         <div className="h-full rounded-full" style={{ width: `${width}%`, background: GOOD, transition: 'width 0.4s ease' }} />
       </div>
     </div>
@@ -153,7 +159,6 @@ function Progress({ label, done, total, ratio: share }: { label: string; done: s
 }
 
 function VolumeChart({ rows, raceLabel }: { rows: Row[]; raceLabel: string | null }) {
-  const [hover, setHover] = useState<number | null>(null)
   const used = useMemo(() => {
     const seen = new Map<string, BlockKind>()
     for (const row of rows) if (row.kind && !seen.has(row.kind.id)) seen.set(row.kind.id, row.kind)
@@ -188,64 +193,21 @@ function VolumeChart({ rows, raceLabel }: { rows: Row[]; raceLabel: string | nul
         <Key swatch={<span className="h-2.5 w-2.5 rounded-[3px] bg-white/25" />}>Passed</Key>
       </ul>
 
-      <p className="sr-only">{summary}</p>
-      <div className="mt-4 h-56 sm:h-72" aria-hidden="true" onMouseLeave={() => setHover(null)}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart
-            data={rows}
-            margin={{ top: raceLabel ? 20 : 8, right: 8, left: 0, bottom: 0 }}
-            barCategoryGap="18%"
-            onMouseMove={(state) => {
-              const raw = state.activeTooltipIndex
-              const index = typeof raw === 'number' ? raw : Number(raw)
-              setHover(raw == null || raw === '' || !Number.isInteger(index) ? null : index)
-            }}
-          >
-            <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis
-              dataKey="label"
-              tickLine={false}
-              axisLine={false}
-              interval="preserveStartEnd"
-              minTickGap={4}
-              tick={(props: { x?: number | string; y?: number | string; payload?: { value?: string | number } }) => {
-                const value = String(props.payload?.value ?? '')
-                const now = value === currentLabel
-                return (
-                  <text x={Number(props.x)} y={Number(props.y) + 12} textAnchor="middle" fontSize={11} fontWeight={now ? 700 : 400} fill={now ? '#FFFFFF' : TICK.fill}>
-                    {value}
-                  </text>
-                )
-              }}
-            />
-            <YAxis width={34} tick={TICK} tickLine={false} axisLine={false} allowDecimals={false} tickFormatter={(value: number) => String(value)} />
-            <Tooltip content={(props) => <VolumeTip active={props.active} row={props.payload?.[0]?.payload as Row | undefined} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            {raceLabel ? <ReferenceLine x={raceLabel} stroke={GOOD} strokeDasharray="3 3" label={{ value: 'Run', position: 'top', fill: GOOD, fontSize: 10, fontWeight: 600 }} /> : null}
-            <Bar dataKey="plannedKm" radius={[4, 4, 0, 0]} maxBarSize={34} isAnimationActive={false}>
-              {rows.map((row, index) => (
-                <Cell
-                  key={row.week}
-                  fill={row.kind?.color ?? NO_BLOCK}
-                  // Weeks gone are shaded, this week is outlined, and the hovered week stands out.
-                  fillOpacity={hover !== null && hover !== index ? 0.28 : row.state === 'past' ? 0.42 : row.state === 'current' ? 1 : 0.9}
-                  stroke={row.state === 'current' ? '#FFFFFF' : 'none'}
-                  strokeWidth={row.state === 'current' ? 1.5 : 0}
-                />
-              ))}
-            </Bar>
-            <Line
-              dataKey="doneKm"
-              type="monotone"
-              stroke={DONE}
-              strokeWidth={2}
-              connectNulls={false}
-              dot={{ r: 3, fill: DONE, stroke: '#10131A', strokeWidth: 1.5 }}
-              activeDot={{ r: 4.5, fill: DONE, stroke: '#10131A', strokeWidth: 1.5 }}
-              isAnimationActive={false}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
+      <BaseChart
+        label="Estimated km per week"
+        rows={rows}
+        xKey="label"
+        current={currentLabel}
+        summary={summary}
+        yWidth={34}
+        xInterval={0}
+        bars={[{ key: 'plannedKm', color: NO_BLOCK, colorOf: (row) => row.kind?.color ?? NO_BLOCK }]}
+        lines={[{ key: 'doneKm', color: DONE }]}
+        markers={raceLabel ? [{ x: raceLabel, label: 'Run', color: GOOD }] : undefined}
+        // Weeks gone are shaded, this week is outlined.
+        rowStyle={(row) => ({ opacity: row.state === 'past' ? 0.42 : row.state === 'current' ? 1 : 0.9, outline: row.state === 'current' ? '#FFFFFF' : undefined })}
+        tooltip={(row) => <VolumeTip row={row} />}
+      />
     </section>
   )
 }
@@ -259,13 +221,12 @@ function Key({ swatch, children }: { swatch: ReactNode; children: ReactNode }) {
   )
 }
 
-function VolumeTip({ active, row }: { active?: boolean; row?: Row }) {
-  if (!active || !row) return null
+function VolumeTip({ row }: { row: Row }) {
   const monday = parseDay(row.week)
   const sunday = new Date(monday)
   sunday.setDate(monday.getDate() + 6)
   return (
-    <div className="min-w-[11rem] rounded-xl border border-[#2A3140] bg-[#0B0D12] px-3 py-2.5 text-xs shadow-xl">
+    <>
       <p className="flex items-baseline justify-between gap-3">
         <span className="font-semibold text-[#E8EAF0]">
           {row.label}
@@ -295,6 +256,6 @@ function VolumeTip({ active, row }: { active?: boolean; row?: Row }) {
           </dd>
         </dl>
       )}
-    </div>
+    </>
   )
 }

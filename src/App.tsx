@@ -1,3 +1,4 @@
+import { PAGE_BOX } from './components/layout'
 import { useEffect, useState } from 'react'
 import { ProfileModal } from './components/ProfileModal'
 import { ActivitiesProvider, useActivities } from './lib/activities'
@@ -73,7 +74,7 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
   return (
     <div className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 pt-[env(safe-area-inset-top)] backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
+        <div className={`${PAGE_BOX} flex h-14 items-center gap-6`}>
           <div className="flex items-center gap-2 font-display text-sm font-semibold tracking-[0.16em]">
             <Mark />
             AsphaltBurner
@@ -87,9 +88,9 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
           </div>
         </div>
       </header>
-      {error ? <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-red-200">{error}</p> : null}
+      {error ? <p className={`${PAGE_BOX} pt-4 text-sm text-red-200`}>{error}</p> : null}
       {progress ? (
-        <p className="mx-auto max-w-6xl px-4 pt-4 text-sm text-white/70">
+        <p className={`${PAGE_BOX} pt-4 text-sm text-white/70`}>
           Reading {progress.done}/{progress.total}
           {progress.label ? ` · ${progress.label}` : ''}
         </p>
@@ -105,7 +106,7 @@ function Shell({ path, go, book, onBook }: { path: PagePath; go: (href: PagePath
         </main>
       ) : null}
       {path === '/activities' ? (
-        <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">
+        <main className={`${PAGE_BOX} pb-16 pt-6`}>
           <ActivitiesPage maxHr={maxHr} restHr={restHr} method={method} split={zones} />
         </main>
       ) : null}
