@@ -261,13 +261,13 @@ function NavIcon({ href }: { href: PagePath }) {
 
 function Mark() {
   return (
-    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white">
+    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0B0D12] shadow-[0_0_12px_rgba(251,146,60,0.4),inset_0_0_0_1px_rgba(250,204,21,0.35)]">
       <img
         src={`${import.meta.env.BASE_URL}icons/icon_asphaltbuner.svg`}
         alt=""
         width={28}
         height={28}
-        className="h-7 w-7"
+        className="h-7 w-7 drop-shadow-[0_0_4px_rgba(250,204,21,0.75)]"
       />
     </span>
   )

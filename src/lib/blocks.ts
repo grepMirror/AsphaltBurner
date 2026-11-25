@@ -18,12 +18,12 @@ export type BlockBook = {
 }
 
 export const BUILT_IN_KINDS: readonly BlockKind[] = [
-  { id: 'vma', label: 'VMA', color: '#F07167', custom: false },
-  { id: 'specific', label: 'Specific', color: '#C58BE0', custom: false },
-  { id: 'threshold', label: 'Threshold', color: '#F0A05A', custom: false },
-  { id: 'grimpette', label: 'Grimpette', color: '#9BB8F0', custom: false },
-  { id: 'tapering', label: 'Tapering', color: '#9DDBC0', custom: false },
-  { id: 'assimilation', label: 'Assimilation', color: '#E8C47C', custom: false },
+  { id: 'vma',          label: 'VMA',          color: '#F07167', custom: false }, // coral red (kept: matches the VMA session tag)
+  { id: 'threshold',    label: 'Threshold',    color: '#EBC34D', custom: false }, // amber
+  { id: 'grimpette',    label: 'Grimpette',    color: '#7ECB6C', custom: false }, // green (hills)
+  { id: 'tapering',     label: 'Tapering',     color: '#54B1EE', custom: false }, // calm blue
+  { id: 'specific',     label: 'Specific',     color: '#BD81E1', custom: false }, // violet
+  { id: 'assimilation', label: 'Assimilation', color: '#BEAE9D', custom: false }, // warm stone (low load, neutral)
 ]
 
 /** Quick colors offered next to the color picker. */
