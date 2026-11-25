@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { PAGE_INNER } from '../components/layout'
 import { MonthCalendar } from '../components/MonthCalendar'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
@@ -59,8 +60,8 @@ export function CalendarPage({ maxHr, restHr, method, split }: { maxHr: number; 
 
   if (detail) {
     return (
-      <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 py-5 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-[1280px]">
+      <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 py-5 sm:px-8 sm:py-8">
+        <div className={PAGE_INNER}>
           <SessionView activity={detail} maxHr={maxHr} split={split} restHr={restHr} method={method} backLabel="← Back to calendar" onBack={() => setDetailId(null)} />
         </div>
       </div>
@@ -68,7 +69,7 @@ export function CalendarPage({ maxHr, restHr, method, split }: { maxHr: number; 
   }
 
   return (
-    <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-3.5 pb-10 pt-5 sm:px-10 sm:pb-14 sm:pt-10">
+    <div className="calendar-page min-h-[calc(100vh-3.5rem)] px-4 pb-10 pt-5 sm:px-8 sm:pb-14 sm:pt-10">
       <MonthCalendar
         model={model}
         sports={sports}
@@ -83,7 +84,7 @@ export function CalendarPage({ maxHr, restHr, method, split }: { maxHr: number; 
         }}
         onSelectDay={(day) => setSelectedKey((current) => (current === day.key ? null : day.key))}
       />
-      <div className="mx-auto mt-4 flex w-full max-w-[1280px] flex-col gap-4">
+      <div className={`${PAGE_INNER} mt-4 flex flex-col gap-4`}>
         {ready && activities.length === 0 ? <p className="text-sm text-[#9AA3B5]">No activity found</p> : null}
         {selectedDay && selectedDay.sessions.length > 0 ? <DaySessions day={selectedDay} onOpen={setDetailId} /> : null}
         <p className="text-xs text-[#8A93A6]">Weeks run Monday to Sunday. Week totals include days from neighbouring months. Month totals do not.</p>

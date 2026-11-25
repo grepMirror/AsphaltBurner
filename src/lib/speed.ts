@@ -135,7 +135,7 @@ function keptPace(seconds: number, meters: number): boolean {
   return pace >= PACE_MIN && pace <= PACE_MAX
 }
 
-/** Breaks on a time gap, a distance step, or an impossible speed. Stops stay inside the effort: elapsed time counts them. */
+/** Breaks on a time gap, a distance step, or an impossible speed. The two sides are never joined, and a gap is never removed from the time. Stops stay inside the effort: elapsed time counts them. */
 function segments(stream: StreamPoint[]): StreamPoint[][] {
   const out: StreamPoint[][] = []
   let current: StreamPoint[] = []
@@ -156,6 +156,12 @@ function segments(stream: StreamPoint[]): StreamPoint[][] {
   return out
 }
 
+/** Distance tolerance per record: 1 km exact, 5 km ±100 m, 10 km and longer ±200 m. */
+function toleranceM(meters: number): number {
+  if (meters < 5000) return 0
+  return meters < 10000 ? 100 : 200
+}
+
 function hrOf(segment: StreamPoint[], t0: number, t1: number): number | null {
   let sum = 0
   let weight = 0
@@ -171,12 +177,12 @@ function hrOf(segment: StreamPoint[], t0: number, t1: number): number | null {
   return weight > 0 ? Math.round(sum / weight) : null
 }
 
-/** Fastest continuous time to cover `meters`. */
-function fastest(segment: StreamPoint[], meters: number): TimeHit | null {
-  let best: TimeHit | null = null
+/** Fastest continuous stretch covering exactly `covered` metres: time, pace over that distance, heart rate. */
+function fastestCovering(segment: StreamPoint[], covered: number): { seconds: number; pace: number; hr: number | null } | null {
+  let best: { seconds: number; pace: number; hr: number | null } | null = null
   let end = 1
   for (let start = 0; start < segment.length - 1; start += 1) {
-    const need = segment[start].d + meters
+    const need = segment[start].d + covered
     if (end < start + 1) end = start + 1
     while (end < segment.length && segment[end].d < need) end += 1
     if (end >= segment.length) break
@@ -186,10 +192,32 @@ function fastest(segment: StreamPoint[], meters: number): TimeHit | null {
     if (span <= 0) continue
     const tEnd = before.t + ((after.t - before.t) * (need - before.d)) / span
     const seconds = tEnd - segment[start].t
-    if (seconds <= 0 || !keptPace(seconds, meters)) continue
-    if (!best || seconds < best.seconds) best = { seconds, hr: hrOf(segment, segment[start].t, tEnd) }
+    if (seconds <= 0 || !keptPace(seconds, covered)) continue
+    const pace = seconds / (covered / 1000)
+    if (!best || pace < best.pace) best = { seconds, pace, hr: hrOf(segment, segment[start].t, tEnd) }
   }
   return best
+}
+
+/**
+ * Fastest time to cover `meters` inside one unbroken segment.
+ * A segment that reaches the distance is measured over exactly that distance.
+ * One that stops short, but inside the tolerance, counts as a whole: its own pace, scaled to the nominal distance.
+ * A shorter window is never searched, so tolerance cannot turn part of a longer run into an easier record.
+ */
+function fastest(segment: StreamPoint[], meters: number): TimeHit | null {
+  const first = segment[0]
+  const last = segment[segment.length - 1]
+  const length = last.d - first.d
+  if (length >= meters) {
+    const hit = fastestCovering(segment, meters)
+    return hit ? { seconds: hit.pace * (meters / 1000), hr: hit.hr } : null
+  }
+  const tolerance = toleranceM(meters)
+  if (length < meters - tolerance) return null
+  const seconds = last.t - first.t
+  if (!keptPace(seconds, length)) return null
+  return { seconds: (seconds / length) * meters, hr: hrOf(segment, first.t, last.t) }
 }
 
 /** Farthest continuous distance covered in `seconds`. */
@@ -473,6 +501,21 @@ if (entry?.endsWith('speed.ts')) {
   if (pair.records.length !== 2) throw new Error(`pair records ${pair.records.length}`)
   const brief = buildSpeedProfile([run('brief', recent, steady(200, 4, 140))], now)
   if (brief.critical !== null) throw new Error('two short efforts still fit')
+  // 9.84 km unbroken is inside the 10 km tolerance and keeps its own pace.
+  const tenKm = buildSpeedProfile([run('ten', recent, steady(2460, 4, 150))], now).records.find((record) => record.meters === 10000)
+  if (!tenKm || Math.abs(tenKm.pace - 250) > 0.5) throw new Error(`10 km tolerance ${tenKm?.pace}`)
+  if (buildSpeedProfile([run('short10', recent, steady(2380, 4, 150))], now).records.some((record) => record.meters === 10000)) {
+    throw new Error('9.52 km counted as 10 km')
+  }
+  // 9.84 km, then a gap, then the last 200 m. The record is the unbroken 9.84 km at its own pace. The gap is not removed.
+  const raced = buildSpeedProfile([run('raced', recent, [...steady(2460, 4, 150), point(2760, 10040, 150, 4)])], now)
+  const raced10 = raced.records.find((record) => record.meters === 10000)
+  if (!raced10 || Math.abs(raced10.pace - 250) > 0.5) throw new Error(`gapped finish ${raced10?.pace}`)
+  // 9.2 km plus a gap plus the rest never reaches the tolerance on one side, so it is not a 10 km.
+  const shortSplit = [...steady(2300, 4, 150), point(2600, 10000, 150, 4)]
+  if (buildSpeedProfile([run('shortSplit', recent, shortSplit)], now).records.some((record) => record.meters === 10000)) {
+    throw new Error('gapped 9.2 km counted as 10 km')
+  }
   const blank = buildSpeedProfile([run('none', 'nope', steady(1200, 4, null))], now)
   if (blank.efforts[0]?.fresh !== 'missing' || blank.efforts[0]?.hr !== null) throw new Error('missing date')
   if (buildSpeedProfile([run('spike', recent, steady(200, 20, 180))], now).records.length !== 0) throw new Error('spike kept')

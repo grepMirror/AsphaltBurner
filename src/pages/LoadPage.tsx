@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, useXAxisScale, useYAxisScale } from 'recharts'
-import type { TooltipContentProps } from 'recharts'
-import { GRID, TICK } from '../components/chartChrome'
-import { ChartFrame } from '../components/ChartFrame'
+import { Line, useXAxisScale, useYAxisScale } from 'recharts'
+import { PAGE_BOX } from '../components/layout'
+import { BaseChart } from '../components/BaseChart'
 import { Segment } from '../components/Segment'
 import { formatDuration } from '../lib/format'
 import {
@@ -76,7 +75,7 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-16 pt-6">
+    <div className={`${PAGE_BOX} flex flex-col gap-4 pb-16 pt-6`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight">Training load</h1>
@@ -139,39 +138,27 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
           {ready && !hasBars && !byDay ? <p className="mt-8 text-sm text-[#9AA3B5]">No heart-rate data in this period, so the zones cannot be split.</p> : null}
           {hasBars || byDay ? (
             <>
-              <ChartFrame label="Training load">
-                {(full) => (
-              <div className={full ? 'h-full' : 'mt-4 h-[260px] sm:h-[360px]'}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={rows} margin={{ top: 12, right: showLoad ? 12 : 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke={GRID} />
-                    <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} minTickGap={16} />
-                    <YAxis width={48} domain={[0, 'auto']} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTick(metric, value)} />
-                    {showLoad ? (
-                      <YAxis yAxisId="change" orientation="right" width={42} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => `${Math.round(value)}%`} />
-                    ) : null}
-                    <Tooltip content={(props) => <LoadTip {...props} metric={metric} showLoad={showLoad} style={style} barNoun={barNoun} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                    <Line dataKey="bandHigh" stroke="none" dot={false} activeDot={false} legendType="none" tooltipType="none" isAnimationActive={false} />
-                    <LoadWindow rows={rows} />
-                    {ZONE_BANDS[style].map((band, index) => (
-                      <Bar
-                        key={band.key}
-                        dataKey={band.key}
-                        stackId="zone"
-                        fill={band.color}
-                        isAnimationActive={false}
-                        maxBarSize={42}
-                        radius={index === ZONE_BANDS[style].length - 1 ? [4, 4, 0, 0] : undefined}
-                      />
-                    ))}
-                    {showLoad ? (
-                      <Line yAxisId="change" type="monotone" dataKey="change" stroke="#E8EAF0" strokeWidth={1.8} dot={{ r: 3, fill: '#E8EAF0' }} connectNulls={false} isAnimationActive={false} />
-                    ) : null}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-                )}
-              </ChartFrame>
+              <BaseChart
+                label="Training load"
+                rows={rows}
+                xKey="label"
+                className="mt-4 h-[260px] sm:h-[360px]"
+                yWidth={48}
+                yFormat={(value) => formatTick(metric, value)}
+                rightAxis={showLoad ? { id: 'change', format: (value) => `${Math.round(value)}%` } : undefined}
+                bars={ZONE_BANDS[style].map((band, index) => ({
+                  key: band.key,
+                  color: band.color,
+                  stackId: 'zone',
+                  maxBarSize: 42,
+                  radius: index === ZONE_BANDS[style].length - 1 ? ([4, 4, 0, 0] as [number, number, number, number]) : undefined,
+                }))}
+                lines={showLoad ? [{ key: 'change', color: '#E8EAF0', axis: 'change', width: 1.8 }] : undefined}
+                tooltip={(row) => <LoadTip row={row} metric={metric} showLoad={showLoad} style={style} barNoun={barNoun} />}
+              >
+                <Line dataKey="bandHigh" stroke="none" dot={false} activeDot={false} legendType="none" tooltipType="none" isAnimationActive={false} />
+                <LoadWindow rows={rows} />
+              </BaseChart>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
                 {ZONE_BANDS[style].map((band) => (
                   <span key={band.key} className="flex items-center gap-2 text-xs text-[#9AA3B5]">
@@ -260,18 +247,11 @@ function formatValue(metric: LoadMetric, value: number): string {
   return `${shown} ${unit}`
 }
 
-function LoadTip({
-  active,
-  payload,
-  metric,
-  showLoad,
-  style,
-  barNoun,
-}: TooltipContentProps & { metric: LoadMetric; showLoad: boolean; style: ZoneStyle; barNoun: 'day' | 'week' }) {
-  const row = payload?.[0]?.payload as ({ label: string; total: number; change: number | null } & Record<string, number>) | undefined
-  if (!active || !row) return null
+type ChartRow = Record<string, unknown> & { label: string; total: number; change: number | null; bandLow: number | null; bandHigh: number | null }
+
+function LoadTip({ row, metric, showLoad, style, barNoun }: { row: ChartRow; metric: LoadMetric; showLoad: boolean; style: ZoneStyle; barNoun: 'day' | 'week' }) {
   return (
-    <div className="rounded-lg border border-white/15 bg-[#0b0e14] px-3 py-2 text-xs shadow-lg">
+    <>
       <p className="text-white/45">{row.label}</p>
       <p className="mt-1 font-medium text-white">{formatValue(metric, row.total)}</p>
       <ul className="mt-1 space-y-0.5">
@@ -292,7 +272,7 @@ function LoadTip({
         </p>
       ) : null}
       {showLoad && row.change !== null ? <p className="mt-1 text-white/70">{row.change > 0 ? '+' : ''}{Math.round(row.change)}% vs previous {barNoun}</p> : null}
-    </div>
+    </>
   )
 }
 

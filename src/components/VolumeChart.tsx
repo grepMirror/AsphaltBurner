@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Activity, DateWindow, MetricId, RangeId, Sport } from '../types'
 import { SportIcon } from './SportIcon'
 import { formatDistance, formatHours, SPORT_COLOR, SPORT_LABEL } from '../lib/format'
 import { activeWeeks, buildBuckets, formatWindow, grainFor, periodBounds, windowBounds } from '../lib/period'
-import { GRID, TICK } from './chartChrome'
-import { ChartFrame } from './ChartFrame'
+import { BaseChart } from './BaseChart'
 import { Segment } from './Segment'
 
 const RANGES: { id: Exclude<RangeId, 'custom'>; label: string }[] = [
@@ -92,7 +90,6 @@ export function VolumeChart({
   const [datesOpen, setDatesOpen] = useState(false)
   const [draftStart, setDraftStart] = useState(custom?.start ?? focus?.start ?? '')
   const [draftEnd, setDraftEnd] = useState(custom?.end ?? focus?.end ?? '')
-  const [hover, setHover] = useState<number | null>(null)
 
   return (
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -185,50 +182,25 @@ export function VolumeChart({
         ))}
       </div>
 
-      <ChartFrame label="Volume">
-        {(full) => (
-      <div className={`${full ? 'h-full' : 'mt-2 h-48'} rounded-md bg-black/25`} onMouseLeave={() => setHover(null)}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={rows}
-            margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
-            onMouseMove={(state) => {
-              const raw = state.activeTooltipIndex
-              if (raw == null || raw === '') {
-                setHover(null)
-                return
-              }
-              const index = typeof raw === 'number' ? raw : Number(raw)
-              setHover(Number.isInteger(index) ? index : null)
-            }}
-          >
-            <CartesianGrid vertical={false} stroke={GRID} />
-            <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={6} />
-            <YAxis width={36} tick={TICK} tickLine={false} axisLine={false} tickFormatter={(value: number) => formatTotal(metric, value)} allowDecimals={false} />
-            <Tooltip content={(props) => <VolumeTip active={props.active} row={props.payload?.[0]?.payload as VolumeRow | undefined} metric={metric} />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            {STACK.map((sport) => (
-              <Bar key={sport} dataKey={sport} stackId="volume" fill={SPORT_COLOR[sport]} isAnimationActive={false} maxBarSize={28}>
-                {rows.map((row, index) => {
-                  const active = highlightTime !== null && highlightTime >= row.start && highlightTime < row.end
-                  const dim = hover !== null && hover !== index
-                  return <Cell key={row.start} fillOpacity={dim ? 0.35 : 1} stroke={active ? 'rgba(125,211,252,0.95)' : 'none'} strokeWidth={active ? 1 : 0} />
-                })}
-              </Bar>
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-        )}
-      </ChartFrame>
+      <BaseChart
+        label="Volume"
+        rows={rows}
+        xKey="label"
+        className="mt-2 h-48 rounded-md bg-black/25"
+        yWidth={36}
+        yFormat={(value) => formatTotal(metric, value)}
+        bars={STACK.map((sport) => ({ key: sport, color: SPORT_COLOR[sport], stackId: 'volume', maxBarSize: 28 }))}
+        rowStyle={(row) => ({ outline: highlightTime !== null && highlightTime >= row.start && highlightTime < row.end ? 'rgba(125,211,252,0.95)' : undefined })}
+        tooltip={(row) => <VolumeTip row={row} metric={metric} />}
+      />
     </section>
   )
 }
 
-function VolumeTip({ active, row, metric }: { active?: boolean; row?: VolumeRow; metric: MetricId }) {
-  if (!active || !row) return null
+function VolumeTip({ row, metric }: { row: VolumeRow; metric: MetricId }) {
   const total = row.run + row.swim + row.ride + row.other
   return (
-    <div className="rounded-lg border border-white/15 bg-[#0b0e14] px-3 py-2 text-xs shadow-lg">
+    <>
       <p className="text-[11px] uppercase tracking-wide text-white/45">{row.label}</p>
       <p className="mt-1 font-medium text-white">
         {formatTotal(metric, total)} {metric === 'km' ? 'km' : metric === 'h' ? 'h' : metric === 'elev' ? 'm' : 'sessions'}
@@ -236,6 +208,6 @@ function VolumeTip({ active, row, metric }: { active?: boolean; row?: VolumeRow;
       <p className="text-white/70">
         {formatDistance(row.km * 1000)} · {formatHours(row.hours * 3600)} · {row.sessions} {row.sessions === 1 ? 'session' : 'sessions'}
       </p>
-    </div>
+    </>
   )
 }

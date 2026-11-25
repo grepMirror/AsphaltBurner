@@ -26,8 +26,13 @@ export function isBlock(item: Step | Block): item is Block {
 }
 export type SessionStatus = 'planned' | 'done' | 'cancelled'
 
+/** Sessions saved before plans existed have no plan id. They belong to the first plan. */
+export const DEFAULT_PLAN_ID = 'main'
+
 export type PlannedSession = {
   id: string
+  /** The plan this session belongs to. */
+  planId: string
   /** Monday of the week. A session floats inside its week, it has no day. */
   week: string
   sport: PlanSport
@@ -44,7 +49,10 @@ export type ZonePace = { low: number; mid: number; high: number }
 export type WeekFacts = {
   meters: number | null
   seconds: number | null
-  elevationM: number | null
+  /** Elevation of the confirmed runs. A planned session has none. */
+  elevationM: number
+  /** True while some counted session is only planned, so distance and time are not exact. */
+  estimated: boolean
   hard: number
   count: number
   done: number
@@ -54,7 +62,6 @@ export type WeekFacts = {
 
 const KEY = 'asphaltburner.plan.v2'
 const DAY = /^\d{4}-\d{2}-\d{2}$/
-const DAY_MS = 24 * 60 * 60 * 1000
 const HARD: ReadonlySet<SessionTag> = new Set(['vma', 'threshold', 'climb'])
 const KINDS: StepKind[] = ['warmup', 'active', 'recover']
 const SPORTS: PlanSport[] = ['run', 'swim', 'ride']
@@ -122,8 +129,8 @@ export function defaultBlocks(tag: SessionTag): Block[] {
   return simpleBlocks(tag === 'long' ? 5400 : 2700)
 }
 
-export function newSession(week: string, tag: SessionTag = 'ef'): PlannedSession {
-  return { id: newId(), week, sport: 'run', tag, blocks: defaultBlocks(tag), status: 'planned', activityId: null }
+export function newSession(week: string, tag: SessionTag = 'ef', planId: string = DEFAULT_PLAN_ID): PlannedSession {
+  return { id: newId(), planId, week, sport: 'run', tag, blocks: defaultBlocks(tag), status: 'planned', activityId: null }
 }
 
 export function cloneBlocks(blocks: Block[]): Block[] {
@@ -178,6 +185,7 @@ function cleanSession(raw: unknown): PlannedSession | null {
   const status = STATUSES.find((item) => item === row.status) ?? 'planned'
   return {
     id: row.id,
+    planId: typeof row.planId === 'string' && row.planId ? row.planId : DEFAULT_PLAN_ID,
     week: weekOf(parseDay(row.week)),
     sport: SPORTS.find((item) => item === row.sport) ?? 'run',
     tag,
@@ -276,15 +284,64 @@ export function blockTotals(blocks: Block[], kmh: number | null): Totals {
   return { seconds: secondsKnown ? seconds : null, meters: metersKnown ? meters : null }
 }
 
-function sumTotals(sessions: PlannedSession[], kmh: number | null): Totals {
+/** Speed over the zone 1 speed where zone 2, 3, 4 and 5 start. Rough on purpose: it only sorts a plan into bands. */
+const ZONE_SPEED_EDGES = [1.08, 1.18, 1.28, 1.4]
+/** Zone of a hard step that has no pace target, by the type of its session. */
+const TAG_ZONE: Record<SessionTag, number> = { ef: 1, long: 2, threshold: 4, climb: 4, vma: 5 }
+
+/** Zone 1 to 5 of a step: its pace against the zone 1 speed, else the type of its session for hard steps, else zone 1. */
+export function stepZone(item: Step, kmh: number | null, tag: SessionTag): number {
+  if (item.pace && kmh) {
+    const ratio = (3600 / item.pace) / kmh
+    return ZONE_SPEED_EDGES.filter((edge) => ratio >= edge).length + 1
+  }
+  return item.kind === 'active' ? TAG_ZONE[tag] : 1
+}
+
+/**
+ * Estimated meters of a session in each zone, zone 1 first. Steps whose distance cannot be told (no pace and no zone 1 speed) are left out.
+ */
+export function blockZoneMeters(blocks: Block[], kmh: number | null, tag: SessionTag): number[] {
+  const meters = [0, 0, 0, 0, 0]
+  const add = (block: Block, times: number) => {
+    const reps = times * block.repeat
+    for (const item of block.steps) {
+      if (isBlock(item)) {
+        add(item, reps)
+        continue
+      }
+      const speed = item.pace ? 1000 / item.pace : kmh ? kmh / 3.6 : null
+      const length = item.by === 'km' ? item.value : speed ? speed * item.value : null
+      if (length !== null) meters[stepZone(item, kmh, tag) - 1] += length * reps
+    }
+  }
+  for (const block of blocks) add(block, 1)
+  return meters
+}
+
+/** The run of a session marked done, when the run is still around. */
+function realRun(session: PlannedSession, byId: ReadonlyMap<string, Activity>): Activity | null {
+  return session.status === 'done' && session.activityId ? (byId.get(session.activityId) ?? null) : null
+}
+
+/**
+ * A planned session counts for its plan and no elevation. A confirmed session counts for its run:
+ * distance, moving time and elevation. A confirmed session whose run is gone counts as planned.
+ */
+function sumTotals(sessions: PlannedSession[], kmh: number | null, byId: ReadonlyMap<string, Activity>): Totals & { elevationM: number; estimated: boolean } {
   let seconds: number | null = 0
   let meters: number | null = 0
+  let elevationM = 0
+  let estimated = false
   for (const session of sessions) {
-    const totals = blockTotals(session.blocks, kmh)
+    const run = realRun(session, byId)
+    const totals: Totals = run ? { seconds: run.movingSec, meters: run.distanceM } : blockTotals(session.blocks, kmh)
+    if (run) elevationM += Math.max(0, run.elevationM)
+    else estimated = true
     seconds = seconds === null || totals.seconds === null ? null : seconds + totals.seconds
     meters = meters === null || totals.meters === null ? null : meters + totals.meters
   }
-  return { seconds, meters }
+  return { seconds, meters, elevationM, estimated }
 }
 
 function live(plan: PlannedSession[], week: string): PlannedSession[] {
@@ -312,17 +369,22 @@ export function dailyKm(activities: Activity[], week: string): number[] {
   return km
 }
 
-/** Cancelled sessions are left out. Percent is versus last week's plan, or last week's runs when nothing was planned. */
-export function weekFacts(plan: PlannedSession[], week: string, kmh: number | null, climbPerMeter: number | null, activities: Activity[]): WeekFacts {
+/**
+ * Cancelled sessions are left out. A planned session adds its planned distance and time and no elevation,
+ * a confirmed one adds what its run did. Percent is versus last week counted the same way,
+ * or last week's runs when nothing was planned.
+ */
+export function weekFacts(plan: PlannedSession[], week: string, kmh: number | null, activities: Activity[]): WeekFacts {
+  const byId = new Map(activities.map((activity) => [activity.id, activity]))
   const sessions = live(plan, week)
-  const totals = sumTotals(sessions, kmh)
-  const elevationM = totals.meters != null && totals.meters > 0 && climbPerMeter != null ? totals.meters * climbPerMeter : null
+  const totals = sumTotals(sessions, kmh, byId)
+  const elevationM = totals.elevationM
   let delta: number | null = null
   let deltaOf: WeekFacts['deltaOf'] = null
   if (sessions.length > 0) {
     const previous = shiftWeek(week, -1)
     const prev = live(plan, previous)
-    const prevTotals = sumTotals(prev, kmh)
+    const prevTotals = sumTotals(prev, kmh, byId)
     if (totals.meters != null) {
       const base = prev.length > 0 ? prevTotals.meters : weekRuns(activities, previous).reduce((sum, run) => sum + run.distanceM, 0)
       if (base != null && base > 0) {
@@ -338,6 +400,7 @@ export function weekFacts(plan: PlannedSession[], week: string, kmh: number | nu
     meters: totals.meters,
     seconds: totals.seconds,
     elevationM,
+    estimated: totals.estimated,
     hard: sessions.filter((session) => isHard(session.tag)).length,
     count: sessions.length,
     done: sessions.filter((session) => session.status === 'done').length,
@@ -346,31 +409,36 @@ export function weekFacts(plan: PlannedSession[], week: string, kmh: number | nu
   }
 }
 
-export function lastWeekMean(plan: PlannedSession[], week: string, tag: SessionTag, kmh: number | null, skipId?: string): { count: number; seconds: number | null; meters: number | null } | null {
+/** What a run really did. Given for sessions that were marked done, so last week shows the run, not the plan. */
+export type ActualRun = (activityId: string) => { seconds: number; meters: number } | null
+
+/** Average of last week's sessions of one type. A done session counts as the run, any other as its plan. */
+export function lastWeekMean(
+  plan: PlannedSession[],
+  week: string,
+  tag: SessionTag,
+  kmh: number | null,
+  skipId?: string,
+  actual?: ActualRun,
+): { count: number; done: number; seconds: number | null; meters: number | null } | null {
   const list = live(plan, shiftWeek(week, -1)).filter((session) => session.tag === tag && session.id !== skipId)
   if (list.length === 0) return null
-  const totals = sumTotals(list, kmh)
+  let seconds: number | null = 0
+  let meters: number | null = 0
+  let done = 0
+  for (const session of list) {
+    const run = session.status === 'done' && session.activityId && actual ? actual(session.activityId) : null
+    const totals = run ?? blockTotals(session.blocks, kmh)
+    if (run) done += 1
+    seconds = seconds === null || totals.seconds === null ? null : seconds + totals.seconds
+    meters = meters === null || totals.meters === null ? null : meters + totals.meters
+  }
   return {
     count: list.length,
-    seconds: totals.seconds == null ? null : totals.seconds / list.length,
-    meters: totals.meters == null ? null : totals.meters / list.length,
+    done,
+    seconds: seconds == null ? null : seconds / list.length,
+    meters: meters == null ? null : meters / list.length,
   }
-}
-
-/** Climb per metre, from runs in the last 90 days. Null under 5 km. ponytail: recent-run rate × estimated km, replace when a route exists. */
-export function climbRatio(activities: Activity[], now = Date.now()): number | null {
-  const cutoff = now - 90 * DAY_MS
-  let meters = 0
-  let climb = 0
-  for (const activity of activities) {
-    if (activity.sport !== 'run' || activity.distanceM < 1000) continue
-    const time = new Date(activity.date).getTime()
-    if (!Number.isFinite(time) || time < cutoff || time > now) continue
-    meters += activity.distanceM
-    climb += Math.max(0, activity.elevationM)
-  }
-  if (meters < 5000) return null
-  return climb / meters
 }
 
 /** "1:30" is 90 s, "45" is 45 min, "1:05:00" is 65 min. */
@@ -478,12 +546,19 @@ if (entry?.endsWith('plan.ts')) {
     { id: 'd', week: '2026-11-16', tag: 'vma', blocks: [{ repeat: 99, steps: [{ kind: 'active', by: 'km', value: 400, pace: 10 }] }], status: 'planned', activityId: 'y' },
   ])
   const keptRep = kept[1]?.blocks[0]?.steps[0]
+  // Sessions saved before plans existed join the first plan; a saved plan id is kept.
+  const owned = normalizePlan([
+    { id: 'old', week: '2026-11-16', tag: 'ef', blocks: simpleBlocks(1800) },
+    { id: 'new', planId: 'race', week: '2026-11-16', tag: 'ef', blocks: simpleBlocks(1800) },
+  ])
+  if (owned[0].planId !== DEFAULT_PLAN_ID || owned[1].planId !== 'race') throw new Error(`plan ids ${JSON.stringify(owned.map((item) => item.planId))}`)
   if (kept.length !== 2 || kept[0].week !== '2026-11-16' || kept[0].activityId !== 'x' || kept[1].blocks[0].repeat !== 50 || !keptRep || isBlock(keptRep) || keptRep.pace !== null || kept[1].activityId !== null) {
     throw new Error(`norm ${JSON.stringify(kept)}`)
   }
 
   const session = (id: string, week: string, tag: SessionTag, minutes: number, status: SessionStatus = 'planned'): PlannedSession => ({
     id,
+    planId: DEFAULT_PLAN_ID,
     week,
     sport: 'run',
     tag,
@@ -492,8 +567,8 @@ if (entry?.endsWith('plan.ts')) {
     activityId: null,
   })
   const plan = [session('1', '2026-11-16', 'ef', 30), session('2', '2026-11-16', 'vma', 30), session('3', '2026-11-16', 'threshold', 60, 'cancelled'), session('4', '2026-11-09', 'ef', 30)]
-  const both = weekFacts(plan, '2026-11-16', 12, 0.02, [])
-  if (!near(both.meters, 12000) || both.hard !== 1 || both.count !== 2 || !near(both.elevationM, 240) || !near(both.delta, 1) || both.deltaOf !== 'distance') throw new Error(`both ${JSON.stringify(both)}`)
+  const both = weekFacts(plan, '2026-11-16', 12, [])
+  if (!near(both.meters, 12000) || both.hard !== 1 || both.count !== 2 || both.elevationM !== 0 || !both.estimated || !near(both.delta, 1) || both.deltaOf !== 'distance') throw new Error(`both ${JSON.stringify(both)}`)
   const run = (date: string, distanceM: number, elevationM = 0): Activity => ({
     id: date,
     name: date,
@@ -508,15 +583,28 @@ if (entry?.endsWith('plan.ts')) {
     track: [],
     stream: [],
   })
-  const fallback = weekFacts([session('1', '2026-11-16', 'ef', 60)], '2026-11-16', 12, null, [run('2026-11-09T12:00:00', 10000)])
+  // a confirmed session counts for its run (distance, moving time, elevation), a planned one for its plan with no elevation
+  const doneRun = run('2026-11-17T08:00:00', 9000, 80)
+  const doneVma = { ...session('2', '2026-11-16', 'vma', 30), status: 'done' as const, activityId: doneRun.id }
+  const mixed = weekFacts([session('1', '2026-11-16', 'ef', 30), doneVma, session('4', '2026-11-09', 'ef', 30)], '2026-11-16', 12, [doneRun])
+  if (!near(mixed.meters, 15000) || !near(mixed.seconds, 2800) || !near(mixed.elevationM, 80) || !mixed.estimated || !near(mixed.delta, 1.5)) throw new Error(`mixed ${JSON.stringify(mixed)}`)
+  const allDone = weekFacts([doneVma], '2026-11-16', 12, [doneRun])
+  if (!near(allDone.meters, 9000) || !near(allDone.seconds, 1000) || allDone.estimated) throw new Error(`allDone ${JSON.stringify(allDone)}`)
+  const lost = weekFacts([doneVma], '2026-11-16', 12, [])
+  if (!near(lost.meters, 6000) || !near(lost.seconds, 1800) || lost.elevationM !== 0 || !lost.estimated) throw new Error(`lost ${JSON.stringify(lost)}`)
+  const fallback = weekFacts([session('1', '2026-11-16', 'ef', 60)], '2026-11-16', 12, [run('2026-11-09T12:00:00', 10000)])
   if (!near(fallback.delta, 0.2)) throw new Error(`fallback ${JSON.stringify(fallback)}`)
-  const timed = weekFacts([session('1', '2026-11-16', 'ef', 70), session('4', '2026-11-09', 'ef', 50)], '2026-11-16', null, null, [])
+  const timed = weekFacts([session('1', '2026-11-16', 'ef', 70), session('4', '2026-11-09', 'ef', 50)], '2026-11-16', null, [])
   if (timed.meters !== null || !near(timed.delta, 0.4) || timed.deltaOf !== 'time') throw new Error(`timed ${JSON.stringify(timed)}`)
   const mean = lastWeekMean([session('a', '2026-11-09', 'ef', 40), session('b', '2026-11-09', 'ef', 60), session('c', '2026-11-09', 'vma', 30)], '2026-11-16', 'ef', 12)
-  if (!mean || mean.count !== 2 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
+  if (!mean || mean.count !== 2 || mean.done !== 0 || !near(mean.seconds, 3000) || !near(mean.meters, 10000)) throw new Error(`mean ${JSON.stringify(mean)}`)
+  // a done session counts as the run: 40 min planned becomes 30 min / 6 km, the other stays at its plan (60 min, 12 km)
+  const doneA = { ...session('a', '2026-11-09', 'ef', 40), status: 'done' as const, activityId: 'run-1' }
+  const actualMean = lastWeekMean([doneA, session('b', '2026-11-09', 'ef', 60)], '2026-11-16', 'ef', 12, undefined, (id) => (id === 'run-1' ? { seconds: 1800, meters: 6000 } : null))
+  if (!actualMean || actualMean.done !== 1 || !near(actualMean.seconds, 2700) || !near(actualMean.meters, 9000)) throw new Error(`actual mean ${JSON.stringify(actualMean)}`)
+  // a done session whose run is gone falls back to its plan
+  const lostMean = lastWeekMean([doneA], '2026-11-16', 'ef', 12, undefined, () => null)
+  if (!lostMean || lostMean.done !== 0 || !near(lostMean.seconds, 2400)) throw new Error(`lost mean ${JSON.stringify(lostMean)}`)
   const daily = dailyKm([run('2026-11-16T08:00:00', 5000), run('2026-11-16T18:00:00', 3000), run('2026-11-22T08:00:00', 10000), run('2026-11-23T08:00:00', 7000)], '2026-11-16')
   if (daily.join() !== '8,0,0,0,0,0,10') throw new Error(`daily ${daily.join()}`)
-  const now = new Date(2026, 10, 19, 12).getTime()
-  const ratio = climbRatio([run('2026-11-01T12:00:00', 10000, 200), run('2026-10-01T12:00:00', 8000, 80), run('2026-08-01T12:00:00', 20000, 900)], now)
-  if (!near(ratio, 280 / 18000)) throw new Error(`climb ${ratio}`)
 }
