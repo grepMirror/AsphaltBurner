@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ContextMenu, menuPoint } from '../components/ContextMenu'
 import { PlanPicker } from '../components/PlanPicker'
+import { PlanStats } from '../components/PlanStats'
 import { BlockTypesModal } from '../components/WeekTags'
 import { addKind, clearPlanTags, kindsOf, loadBlocks, removeKind, runOf, saveBlocks, tagWeeks, tagsOf, weeksBetween, type BlockBook, type BlockKind } from '../lib/blocks'
 import { CheckIcon, SessionEditor, SessionViewer, TAG_COLOR, WorkoutStrip } from '../components/PlanSession'
@@ -30,7 +31,7 @@ import {
   type WeekFacts,
 } from '../lib/plan'
 import { formatDayInput, parseDay, startOfWeek } from '../lib/period'
-import { activePlan, addPlan, loadBook, raceText, removePlan, saveBook, selectPlan, updatePlan, type PlanBook, type PlanDraft, type PlanInfo } from '../lib/plans'
+import { activePlan, addPlan, loadBook, removePlan, saveBook, selectPlan, updatePlan, type PlanBook, type PlanDraft } from '../lib/plans'
 import type { Activity } from '../types'
 
 type Pane = 'week' | 'stats'
@@ -229,7 +230,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
           }
         />
         {pane === 'stats' ? (
-          <PlanStats plan={plan} info={info} />
+          <PlanStats plan={plan} info={info} kmh={kmh} byId={byId} tags={tags} kinds={tagState.kinds} raceWeek={raceWeek} />
         ) : (
           <div className="flex items-start gap-8">
             <aside className="sticky top-16 hidden w-[340px] shrink-0 lg:block">
@@ -621,36 +622,6 @@ function SessionRow({
         </div>
       ) : null}
     </li>
-  )
-}
-
-function PlanStats({ plan, info }: { plan: PlannedSession[]; info: PlanInfo }) {
-  const weeks = [...new Set(plan.map((session) => session.week))].sort()
-  const race = raceText(info.raceDate)
-  return (
-    <div className="mt-2">
-      <h1 className="font-display text-[34px] font-semibold tracking-tight sm:text-[44px]">{info.name}</h1>
-      {info.raceDate ? (
-        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-[#9AA3B5]">
-          Run {parseDay(info.raceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-          {race ? ` · ${race}` : ''}
-        </p>
-      ) : null}
-      <p className="mt-3 max-w-md text-sm leading-relaxed text-[#9AA3B5]">{info.objective || 'Estimated distance, time and load across the whole plan will show here.'}</p>
-      <p className="mt-8 text-sm">
-        {plan.length === 0 ? (
-          <span className="text-[#9AA3B5]">No session yet.</span>
-        ) : (
-          <>
-            {plan.length} {plan.length === 1 ? 'session' : 'sessions'}
-            <span className="text-[#9AA3B5]">
-              {' '}
-              over {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} · from {formatDayInput(parseDay(weeks[0]))}
-            </span>
-          </>
-        )}
-      </p>
-    </div>
   )
 }
 
