@@ -55,11 +55,12 @@ type Tagging = {
 
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
+/** Plans, sessions and week tags of the active profile. The page is remounted when the profile changes. */
+export function PlannerPage({ profileId, maxHr, restHr, method, split }: { profileId: string; maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
   const { ready, activities } = useActivities()
   const [pane, setPane] = useState<Pane>('week')
-  const [book, setBook] = useState(loadBook)
-  const [sessionsOfAll, setSessionsOfAll] = useState(loadPlan)
+  const [book, setBook] = useState(() => loadBook(profileId))
+  const [sessionsOfAll, setSessionsOfAll] = useState(() => loadPlan(profileId))
   const [week, setWeek] = useState(() => weekOf(new Date()))
   const [shown, setShown] = useState(() => {
     const monday = parseDay(weekOf(new Date()))
@@ -68,7 +69,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [open, setOpen] = useState<Open | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [blocks, setBlocks] = useState(loadBlocks)
+  const [blocks, setBlocks] = useState(() => loadBlocks(profileId))
   const [typesFor, setTypesFor] = useState<string[] | null>(null)
 
   useEffect(() => {
@@ -97,8 +98,8 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   const info = activePlan(book)
   const plan = useMemo(() => sessionsOfAll.filter((session) => session.planId === info.id), [sessionsOfAll, info.id])
   const commit = (next: PlannedSession[]) =>
-    setSessionsOfAll(savePlan([...sessionsOfAll.filter((session) => session.planId !== info.id), ...next.map((session) => ({ ...session, planId: info.id }))]))
-  const changeBook = (next: PlanBook) => setBook(saveBook(next))
+    setSessionsOfAll(savePlan(profileId, [...sessionsOfAll.filter((session) => session.planId !== info.id), ...next.map((session) => ({ ...session, planId: info.id }))]))
+  const changeBook = (next: PlanBook) => setBook(saveBook(profileId, next))
   const switchPlan = (id: string) => {
     if (id === info.id) return
     changeBook(selectPlan(book, id))
@@ -111,7 +112,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
     setDetailId(null)
   }
   const deletePlan = (id: string) => {
-    setSessionsOfAll(savePlan(sessionsOfAll.filter((session) => session.planId !== id)))
+    setSessionsOfAll(savePlan(profileId, sessionsOfAll.filter((session) => session.planId !== id)))
     changeBlocks(clearPlanTags(blocks, id))
     changeBook(removePlan(book, id))
     setOpen(null)
@@ -121,7 +122,7 @@ export function PlannerPage({ maxHr, restHr, method, split }: { maxHr: number; r
   // Block tags of the active plan. A week without an entry has no tag.
   const tags = tagsOf(blocks, info.id)
   const raceWeek = info.raceDate ? weekOf(parseDay(info.raceDate)) : null
-  const changeBlocks = (next: BlockBook) => setBlocks(saveBlocks(next))
+  const changeBlocks = (next: BlockBook) => setBlocks(saveBlocks(profileId, next))
   const tagState: Tagging = {
     tags,
     kinds: kindsOf(blocks),

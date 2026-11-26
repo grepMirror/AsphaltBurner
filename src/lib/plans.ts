@@ -1,5 +1,7 @@
 import { formatDayInput, parseDay } from './period'
 import { DEFAULT_PLAN_ID, newId, weekOf } from './plan'
+import { noteChange, profileKey } from './profileData'
+import { loadTombstones, stableJson, stampItems, storeTombstones, tombstoneRemoved } from './stamp'
 
 /** A training plan. Its sessions and week tags belong to it; every planner tab shows the active one. */
 export type PlanInfo = {
@@ -8,6 +10,10 @@ export type PlanInfo = {
   objective: string
   /** Local YYYY-MM-DD of the target run, when the athlete has one. */
   raceDate: string | null
+  /** Who made the plan, typed by the user. Shown to whoever opens the profile. */
+  createdBy: string
+  /** When the plan last changed on this device. */
+  updatedAt?: string
 }
 
 export type PlanBook = {
@@ -20,7 +26,10 @@ export type PlanDraft = {
   name: string
   objective: string
   raceDate: string | null
+  createdBy?: string
 }
+
+type CleanDraft = PlanDraft & { createdBy: string }
 
 export const NAME_MAX = 60
 export const OBJECTIVE_MAX = 280
@@ -34,16 +43,17 @@ export function isDay(value: unknown): value is string {
   return typeof value === 'string' && DAY.test(value) && formatDayInput(parseDay(value)) === value
 }
 
-export function cleanDraft(draft: PlanDraft): PlanDraft {
+export function cleanDraft(draft: PlanDraft): CleanDraft {
   return {
     name: draft.name.trim().slice(0, NAME_MAX),
     objective: draft.objective.trim().slice(0, OBJECTIVE_MAX),
     raceDate: isDay(draft.raceDate) ? draft.raceDate : null,
+    createdBy: (draft.createdBy ?? '').trim().slice(0, NAME_MAX),
   }
 }
 
 export function defaultBook(): PlanBook {
-  return { plans: [{ id: DEFAULT_PLAN_ID, name: 'My plan', objective: '', raceDate: null }], activeId: DEFAULT_PLAN_ID }
+  return { plans: [{ id: DEFAULT_PLAN_ID, name: 'My plan', objective: '', raceDate: null, createdBy: '' }], activeId: DEFAULT_PLAN_ID }
 }
 
 function cleanPlan(raw: unknown): PlanInfo | null {
@@ -54,8 +64,10 @@ function cleanPlan(raw: unknown): PlanInfo | null {
     name: typeof row.name === 'string' ? row.name : '',
     objective: typeof row.objective === 'string' ? row.objective : '',
     raceDate: isDay(row.raceDate) ? row.raceDate : null,
+    createdBy: typeof row.createdBy === 'string' ? row.createdBy : '',
   })
-  return { id: row.id, ...draft, name: draft.name || FALLBACK_NAME }
+  const updatedAt = typeof row.updatedAt === 'string' && !Number.isNaN(Date.parse(row.updatedAt)) ? row.updatedAt : undefined
+  return { id: row.id, ...draft, name: draft.name || FALLBACK_NAME, updatedAt }
 }
 
 /** Always returns at least one plan and an active id that exists. */
@@ -74,23 +86,37 @@ export function normalizeBook(raw: unknown): PlanBook {
   return { plans, activeId }
 }
 
-export function loadBook(): PlanBook {
+export function loadBook(profileId: string = DEFAULT_PLAN_ID): PlanBook {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(profileKey(KEY, profileId))
     return raw ? normalizeBook(JSON.parse(raw)) : defaultBook()
   } catch {
     return defaultBook()
   }
 }
 
-export function saveBook(book: PlanBook): PlanBook {
+/** Stores the book with the stamps it already has. Used for copies that come from Drive. */
+export function storeBook(profileId: string, book: PlanBook): PlanBook {
   const next = normalizeBook(book)
   try {
-    localStorage.setItem(KEY, JSON.stringify(next))
+    localStorage.setItem(profileKey(KEY, profileId), JSON.stringify(next))
   } catch {
     /* the plans still apply for this visit */
   }
   return next
+}
+
+/** A local save: changed plans get the time of this save, removed ones a tombstone. */
+export function saveBook(profileId: string, book: PlanBook): PlanBook {
+  const prev = loadBook(profileId)
+  const next = normalizeBook(book)
+  const now = new Date().toISOString()
+  const stamped = stampItems(prev.plans, next.plans, now)
+  const tombs = loadTombstones(profileId)
+  storeTombstones(profileId, { ...tombs, plans: tombstoneRemoved(tombs.plans, prev.plans.map((plan) => plan.id), stamped.map((plan) => plan.id), now) })
+  const stored = storeBook(profileId, { ...next, plans: stamped })
+  if (stableJson(prev.plans) !== stableJson(stamped)) noteChange(profileId)
+  return stored
 }
 
 export function activePlan(book: PlanBook): PlanInfo {

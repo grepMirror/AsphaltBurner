@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useActivities } from '../lib/activities'
 import { backendOnline } from '../lib/garmin'
+import { DriveCard } from './DriveCard'
+import { GarminIcon } from './icons'
 
-/** Connectors of the active profile. Garmin is the first card; more cards are added to this list. */
+/** Connectors of the active profile. Google Drive is the first card, then Garmin; more cards are added to this list. */
 export function ConnectorsPanel() {
   const [online, setOnline] = useState<boolean | null>(null)
 
@@ -20,6 +22,7 @@ export function ConnectorsPanel() {
     <div>
       {online === false ? <p className="mb-3 text-xs text-red-200">Backend is not running. Connectors need it. Zip import still works.</p> : null}
       <div className="space-y-3">
+        <DriveCard />
         <GarminCard />
       </div>
     </div>
@@ -60,8 +63,11 @@ function GarminCard() {
 
   return (
     <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-white">Garmin</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+          <GarminIcon />
+          Garmin
+        </h3>
         <span className={`text-xs ${garmin ? 'text-emerald-300' : 'text-white/45'}`}>{garmin ? 'Connected' : 'Not connected'}</span>
       </div>
       <p className="mt-1 text-xs text-white/55">

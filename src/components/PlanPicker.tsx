@@ -158,7 +158,9 @@ export function PlanPicker({ book, sessionCount, onSelect, onCreate, onUpdate, o
 }
 
 function subtitle(plan: PlanInfo): string {
-  const parts = [plan.raceDate ? `Run ${dayLabel(plan.raceDate)}` : null, plan.objective || null].filter((part): part is string => part !== null)
+  const parts = [plan.createdBy ? `By ${plan.createdBy}` : null, plan.raceDate ? `Run ${dayLabel(plan.raceDate)}` : null, plan.objective || null].filter(
+    (part): part is string => part !== null,
+  )
   return parts.length > 0 ? parts.join(' · ') : 'No run date yet'
 }
 
@@ -181,8 +183,9 @@ function PlanForm({
   onSave: (draft: PlanDraft) => void
   onDelete: () => void
 }) {
-  const ids = { name: useId(), objective: useId(), date: useId() }
+  const ids = { name: useId(), createdBy: useId(), objective: useId(), date: useId() }
   const [name, setName] = useState(plan?.name ?? '')
+  const [createdBy, setCreatedBy] = useState(plan?.createdBy ?? '')
   const [objective, setObjective] = useState(plan?.objective ?? '')
   const [raceDate, setRaceDate] = useState(plan?.raceDate ?? '')
   const [missing, setMissing] = useState(false)
@@ -195,7 +198,7 @@ function PlanForm({
       setMissing(true)
       return
     }
-    onSave({ name, objective, raceDate: raceDate || null })
+    onSave({ name, objective, raceDate: raceDate || null, createdBy })
   }
 
   return (
@@ -224,6 +227,21 @@ function PlanForm({
               Give the plan a name.
             </p>
           ) : null}
+        </div>
+
+        <div>
+          <label htmlFor={ids.createdBy} className="flex items-baseline justify-between text-[11px] font-medium uppercase tracking-[0.14em] text-[#9AA3B5]">
+            Created by
+            <span className="normal-case tracking-normal text-[#5A6275]">Optional</span>
+          </label>
+          <input
+            id={ids.createdBy}
+            value={createdBy}
+            maxLength={NAME_MAX}
+            placeholder="Coach or athlete name"
+            onChange={(event) => setCreatedBy(event.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-[#1E2330] bg-[#0F1218] px-3.5 py-2.5 text-sm text-[#E8EAF0] outline-none placeholder:text-[#5A6275] focus:border-[#4A5264]"
+          />
         </div>
 
         <div>

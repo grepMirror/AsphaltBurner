@@ -6,3 +6,5 @@ drawings
 
 # IDE
 .cursor
+# Local env files (Google keys)
+.env*.local

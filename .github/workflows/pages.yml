@@ -29,6 +29,9 @@ jobs:
         working-directory: ./
         env:
           GITHUB_PAGES: 'true'
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_API_KEY: ${{ secrets.VITE_GOOGLE_API_KEY }}
+          VITE_GOOGLE_APP_ID: ${{ secrets.VITE_GOOGLE_APP_ID }}
       - run: cp index.html 404.html
         working-directory: ./dist
       - uses: actions/upload-pages-artifact@v3
