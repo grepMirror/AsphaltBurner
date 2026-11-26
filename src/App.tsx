@@ -7,12 +7,29 @@ import { CalendarPage } from './pages/CalendarPage'
 import { LoadPage } from './pages/LoadPage'
 import { PlannerPage } from './pages/PlannerPage'
 import { ProfilePage } from './pages/ProfilePage'
-import { activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, saveProfiles, selectProfile, updateHr, type ProfileBook } from './lib/profiles'
+import { activeProfile, loadProfiles, renameProfile, saveProfiles, updateHr, type ProfileBook } from './lib/profiles'
 import { DRIVE_LABEL, DRIVE_TONE } from './components/DriveCard'
+import { DrivePrompt } from './components/DrivePrompt'
 import { DriveIcon } from './components/icons'
 import { DriveProvider, useDrive, type DriveStatus } from './lib/drive/DriveProvider'
 import { noteChange, removePlannerData } from './lib/profileData'
-import { bundleKeyOf, clearBundle, clearZip } from './lib/store'
+import { bundleKeyOf, clearBundle, clearGarmin, clearZip } from './lib/store'
+
+/** One profile only. A device that still has several keeps the first and deletes the data of the others. */
+function loadSingleProfile(): ProfileBook {
+  const book = loadProfiles()
+  if (book.profiles.length === 1) return book
+  const [first, ...others] = book.profiles
+  for (const other of others) {
+    removePlannerData(other.id)
+    void clearGarmin(other.id)
+    if (other.ownBundle) {
+      void clearBundle(bundleKeyOf(other))
+      void clearZip(bundleKeyOf(other))
+    }
+  }
+  return saveProfiles({ profiles: [first], activeId: first.id })
+}
 
 type PagePath = '/' | '/load' | '/activities' | '/profile' | '/planner'
 
@@ -53,10 +70,10 @@ export function App() {
     setPath(href)
   }
 
-  const [book, setBook] = useState(loadProfiles)
+  const [book, setBook] = useState(loadSingleProfile)
   // Bumped when a sync changes the local data under the screen, so the pages read it again.
   const [revision, setRevision] = useState(0)
-  /** An edit (name, heart rate) is sent to Drive. Choosing, creating or removing a profile is not. */
+  /** An edit (name, heart rate) is sent to Drive. A change that came from Drive or from linking is not. */
   const changeBook = (next: ProfileBook, silent = false) => {
     const saved = saveProfiles(next)
     setBook(saved)
@@ -85,7 +102,7 @@ function Shell({
   onBook: (book: ProfileBook, silent?: boolean) => void
   revision: number
 }) {
-  const { progress, error, forgetProfile } = useActivities()
+  const { progress, error } = useActivities()
   const drive = useDrive()
   const [profileOpen, setProfileOpen] = useState(false)
   const profile = activeProfile(book)
@@ -149,25 +166,14 @@ function Shell({
       ) : null}
       {profileOpen ? (
         <ProfileModal
-          book={book}
-          onSelect={(id) => onBook(selectProfile(book, id), true)}
-          onCreate={() => onBook(addProfile(book).book, true)}
-          onRename={(id, name) => onBook(renameProfile(book, id, name))}
-          onHr={(id, patch) => onBook(updateHr(book, id, patch))}
-          onDelete={(id) => {
-            const removed = book.profiles.find((item) => item.id === id)
-            void forgetProfile(id)
-            removePlannerData(id)
-            // Only a profile with its own activities removes them. The shared bundle stays for the others.
-            if (removed?.ownBundle) {
-              void clearBundle(bundleKeyOf(removed))
-              void clearZip(bundleKeyOf(removed))
-            }
-            onBook(removeProfile(book, id), true)
-          }}
+          profile={profile}
+          revision={revision}
+          onRename={(name) => onBook(renameProfile(book, profile.id, name))}
+          onHr={(patch) => onBook(updateHr(book, profile.id, patch))}
           onClose={() => setProfileOpen(false)}
         />
       ) : null}
+      <DrivePrompt />
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-black/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {nav(true)}
       </nav>

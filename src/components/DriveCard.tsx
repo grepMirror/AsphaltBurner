@@ -24,7 +24,7 @@ const PRIMARY = `${BUTTON} border-sky-300/40 bg-sky-400/10 text-sky-100`
 const QUIET = `${BUTTON} border-white/15 text-white/70 hover:text-white`
 const ICON = 'grid h-9 w-9 place-items-center rounded-md border border-sky-300/40 bg-sky-400/10 text-sky-100 disabled:opacity-50'
 
-/** Google Drive of the active profile. Signed out it only offers sign-in; signed in it syncs or loads a profile. */
+/** Google Drive of the active profile. Signed out it only offers sign-in; signed in it syncs the profile. */
 export function DriveCard() {
   const drive = useDrive()
   const { linked, status, message, signedIn } = drive
@@ -53,7 +53,8 @@ export function DriveCard() {
         </h3>
         <span className={`text-xs ${tone}`}>{label}</span>
       </div>
-      <p className="mt-1 text-xs text-white/55">Keep this profile, its plans and its Strava archive in a folder of your own Google Drive. Nothing is sent until you sync or load.</p>
+      {signedIn && drive.email ? <p className="mt-1 truncate text-xs text-white/70">{drive.email}</p> : null}
+      {drive.archiveHint ? <p className="mt-2 text-xs text-amber-200">{drive.archiveHint}</p> : null}
 
       {!signedIn ? (
         <div className="mt-3">
@@ -65,6 +66,7 @@ export function DriveCard() {
         <div className="mt-3 space-y-2">
           {linked ? (
             <>
+              <p className="text-xs text-white/70">Folder: {linked.folderName ?? '…'}</p>
               <p className="text-xs text-white/70">Last sync: {linked.lastSyncAt ? new Date(linked.lastSyncAt).toLocaleString() : 'never'}</p>
               <p className="text-xs text-white/70">Archive: {linked.archiveId ? 'backed up in Drive' : 'not backed up'}</p>
               {linked.canEdit ? null : <p className="text-xs text-amber-200">You have view access to this file. Your changes stay on this device.</p>}
@@ -84,9 +86,6 @@ export function DriveCard() {
               <>
                 <button type="button" disabled={busy} onClick={() => void drive.saveToDrive()} className={PRIMARY}>
                   Sync to Drive
-                </button>
-                <button type="button" disabled={busy} onClick={() => void drive.loadFromDrive()} className={QUIET}>
-                  Load a profile
                 </button>
               </>
             )}

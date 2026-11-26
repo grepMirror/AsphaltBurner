@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_HR, DEFAULT_REST_HR, DEFAULT_ZONES, clampMaxHr, clampRestHr, clampZones, loadMaxHr, loadRestHr, loadZones, type HrMethod, type ZoneEdges } from './intensity'
 
-/** Heart-rate settings. Every profile has its own. */
+/** Heart-rate settings of the profile. */
 export type HrSettings = {
   maxHr: number
   restHr: number
@@ -18,11 +18,13 @@ export type DriveLink = {
   canEdit: boolean
   /** The Strava archive file in Drive, once it was backed up or restored. */
   archiveId: string | null
+  /** Name of the Drive folder that holds the profile file. `My Drive` when it is at the root. */
+  folderName: string | null
 }
 
 /**
- * A profile is a name, its heart-rate settings, its connectors login and, when saved, its Drive file.
- * Activities of a profile saved to Drive are its own; the others read the shared activities.
+ * The profile is a name, heart-rate settings, the connectors login and, when saved, a Drive file.
+ * The app keeps one profile. The list shape stays so the stored keys and the Drive file do not change.
  */
 export type Profile = HrSettings & {
   id: string
@@ -30,10 +32,7 @@ export type Profile = HrSettings & {
   /** When the name or heart-rate settings last changed. Drive keeps the newer side. */
   settingsAt?: string
   drive?: DriveLink
-  /**
-   * The activities are this profile's own, not the shared ones. Set for a profile loaded from Drive,
-   * and kept when the link is removed, so its activities do not switch bundle.
-   */
+  /** Left by an earlier version: the activities are kept in this profile's own bundle, not the shared one. */
   ownBundle?: boolean
 }
 
@@ -45,6 +44,7 @@ export type ProfileBook = {
 /** The first profile holds the settings and the Garmin login saved before profiles existed. */
 export const DEFAULT_PROFILE_ID = 'main'
 export const NAME_MAX = 40
+export const DEFAULT_NAME = 'My profile'
 
 const KEY = 'asphaltburner.profiles.v1'
 // Keys used before profiles existed. Read once to build the first profile.
@@ -87,6 +87,7 @@ function cleanLink(raw: unknown): DriveLink | undefined {
     lastSyncAt: cleanStamp(row.lastSyncAt) ?? null,
     canEdit: row.canEdit !== false,
     archiveId: typeof row.archiveId === 'string' && row.archiveId ? row.archiveId : null,
+    folderName: typeof row.folderName === 'string' && row.folderName ? row.folderName : null,
   }
 }
 
@@ -130,7 +131,7 @@ function migrated(): ProfileBook {
   } catch {
     /* keep the default */
   }
-  const profile: Profile = { id: DEFAULT_PROFILE_ID, name: 'My profile', maxHr: loadMaxHr(), restHr: loadRestHr(), method, zones: loadZones() }
+  const profile: Profile = { id: DEFAULT_PROFILE_ID, name: DEFAULT_NAME, maxHr: loadMaxHr(), restHr: loadRestHr(), method, zones: loadZones() }
   return { profiles: [profile], activeId: profile.id }
 }
 
@@ -160,24 +161,14 @@ export function activeProfile(book: ProfileBook): Profile {
   return book.profiles.find((profile) => profile.id === book.activeId) ?? book.profiles[0]
 }
 
-export function selectProfile(book: ProfileBook, id: string): ProfileBook {
-  return book.profiles.some((profile) => profile.id === id) ? { ...book, activeId: id } : book
-}
-
-/** "Profile 2", "Profile 3"… the first one that no profile uses yet. */
-export function nextName(book: ProfileBook): string {
-  const used = new Set(book.profiles.map((profile) => profile.name.toLowerCase()))
-  for (let index = book.profiles.length + 1; ; index += 1) {
-    const name = `Profile ${index}`
-    if (!used.has(name.toLowerCase())) return name
+/** Back to the first state: default name and heart rate, no Drive link. The id stays, so the stored data keeps its keys. */
+export function resetProfile(book: ProfileBook, id: string): ProfileBook {
+  return {
+    ...book,
+    profiles: book.profiles.map((profile) =>
+      profile.id === id ? { id, name: DEFAULT_NAME, ...defaultHr(), ...(profile.ownBundle ? { ownBundle: true } : {}) } : profile,
+    ),
   }
-}
-
-/** The new profile starts from the default heart-rate settings and becomes the active one. */
-export function addProfile(book: ProfileBook, name?: string): { book: ProfileBook; id: string } {
-  const id = `profile-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-  const profile: Profile = { id, name: cleanName(name) || nextName(book), ...defaultHr() }
-  return { book: { profiles: [...book.profiles, profile], activeId: id }, id }
 }
 
 /** An empty name is ignored, so a profile always has one. */
@@ -199,11 +190,6 @@ export function setDriveLink(book: ProfileBook, id: string, link: DriveLink | nu
   return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, drive: link ?? undefined } : profile)) }
 }
 
-/** A profile loaded from Drive keeps its own activities from now on. */
-export function setOwnBundle(book: ProfileBook, id: string): ProfileBook {
-  return { ...book, profiles: book.profiles.map((profile) => (profile.id === id ? { ...profile, ownBundle: true } : profile)) }
-}
-
 /** Gives a profile the time of its settings when it has none yet, so Drive can tell it apart from a newer copy. */
 export function stampSettings(book: ProfileBook, id: string, at: string): ProfileBook {
   return { ...book, profiles: book.profiles.map((profile) => (profile.id === id && !profile.settingsAt ? { ...profile, settingsAt: at } : profile)) }
@@ -219,13 +205,6 @@ export function applySettings(book: ProfileBook, id: string, settings: HrSetting
   }
 }
 
-/** The last profile stays. Removing the active one activates the first of the others. */
-export function removeProfile(book: ProfileBook, id: string): ProfileBook {
-  if (book.profiles.length <= 1 || !book.profiles.some((profile) => profile.id === id)) return book
-  const profiles = book.profiles.filter((profile) => profile.id !== id)
-  return { profiles, activeId: book.activeId === id ? profiles[0].id : book.activeId }
-}
-
 /** Where a profile's Garmin login is kept. The first profile keeps the key used before profiles existed. */
 export function garminKeyOf(profileId: string): string {
   return profileId === DEFAULT_PROFILE_ID ? 'garmin' : `garmin:${profileId}`
@@ -235,32 +214,23 @@ const entry = (globalThis as { process?: { argv?: string[] } }).process?.argv?.[
 if (entry?.endsWith('profiles.ts')) {
   const base: ProfileBook = { profiles: [{ id: DEFAULT_PROFILE_ID, name: 'My profile', ...defaultHr() }], activeId: DEFAULT_PROFILE_ID }
 
-  // add: new profile starts from the defaults and is selected
-  const added = addProfile(base)
-  const second = added.book.profiles[1]
-  if (added.book.profiles.length !== 2 || added.book.activeId !== added.id || second.name !== 'Profile 2' || second.method !== 'karvonen' || second.maxHr !== DEFAULT_MAX_HR) throw new Error('add')
-  if (addProfile(added.book, '  Marie   Curie ').book.profiles[2].name !== 'Marie Curie') throw new Error('add name')
-  if (addProfile(base, 'x'.repeat(100)).book.profiles[1].name.length !== NAME_MAX) throw new Error('name max')
-
-  // names that already exist are skipped
-  const taken = { ...added.book, profiles: [...added.book.profiles, { ...second, id: 'z', name: 'profile 3' }] }
-  if (nextName(taken) !== 'Profile 4') throw new Error('next name')
-
-  // rename: empty keeps the old name; heart rate of one profile does not touch another
-  if (renameProfile(base, DEFAULT_PROFILE_ID, '   ').profiles[0].name !== 'My profile') throw new Error('rename empty')
+  // rename: empty keeps the old name
+  if (renameProfile(base, DEFAULT_PROFILE_ID, '   ').profiles[0].name !== DEFAULT_NAME) throw new Error('rename empty')
   if (renameProfile(base, DEFAULT_PROFILE_ID, ' Mael ').profiles[0].name !== 'Mael') throw new Error('rename')
-  const tuned = updateHr(added.book, added.id, { maxHr: 185, restHr: 48, method: 'max' })
-  if (tuned.profiles[1].maxHr !== 185 || tuned.profiles[1].restHr !== 48 || tuned.profiles[1].method !== 'max') throw new Error('hr')
-  if (tuned.profiles[0].maxHr !== DEFAULT_MAX_HR || tuned.profiles[0].method !== 'karvonen') throw new Error('hr isolation')
+  if (renameProfile(base, DEFAULT_PROFILE_ID, 'x'.repeat(100)).profiles[0].name.length !== NAME_MAX) throw new Error('name max')
+
+  // heart rate is clamped
+  const tuned = updateHr(base, DEFAULT_PROFILE_ID, { maxHr: 185, restHr: 48, method: 'max' })
+  if (tuned.profiles[0].maxHr !== 185 || tuned.profiles[0].restHr !== 48 || tuned.profiles[0].method !== 'max') throw new Error('hr')
   if (updateHr(base, DEFAULT_PROFILE_ID, { maxHr: 5000 }).profiles[0].maxHr !== clampMaxHr(5000)) throw new Error('hr clamp')
 
-  // select and remove
-  if (selectProfile(tuned, DEFAULT_PROFILE_ID).activeId !== DEFAULT_PROFILE_ID) throw new Error('select')
-  if (selectProfile(tuned, 'nope').activeId !== added.id) throw new Error('select unknown')
-  if (removeProfile(base, DEFAULT_PROFILE_ID) !== base) throw new Error('last stays')
-  const left = removeProfile(tuned, added.id)
-  if (left.profiles.length !== 1 || left.activeId !== DEFAULT_PROFILE_ID) throw new Error('remove active')
-  if (removeProfile(tuned, DEFAULT_PROFILE_ID).activeId !== added.id) throw new Error('remove other')
+  // reset: default name and heart rate, no link, no settings stamp, same id
+  const used: ProfileBook = {
+    ...tuned,
+    profiles: [{ ...tuned.profiles[0], name: 'Mael', settingsAt: '2026-01-01T00:00:00.000Z', drive: { fileId: 'f', lastVersion: null, lastSyncAt: null, canEdit: true, archiveId: null, folderName: null } }],
+  }
+  const fresh = resetProfile(used, DEFAULT_PROFILE_ID).profiles[0]
+  if (fresh.id !== DEFAULT_PROFILE_ID || fresh.name !== DEFAULT_NAME || fresh.maxHr !== DEFAULT_MAX_HR || fresh.method !== 'karvonen' || fresh.drive || fresh.settingsAt) throw new Error('reset')
 
   // normalize: bad rows dropped, duplicates dropped, bad active id repaired, bad numbers clamped
   const messy = normalizeBook({

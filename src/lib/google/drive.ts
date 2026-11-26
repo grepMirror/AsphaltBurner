@@ -48,10 +48,33 @@ export async function downloadFile(fileId: string, token: string): Promise<Blob>
   return response.blob()
 }
 
+/** The email of the Google account that signed in, or null when Drive does not say. */
+export async function accountEmail(token: string): Promise<string | null> {
+  const response = await call(`https://www.googleapis.com/drive/v3/about?fields=${encodeURIComponent('user(emailAddress)')}`, {}, token)
+  return ((await response.json()) as { user?: { emailAddress?: string } }).user?.emailAddress ?? null
+}
+
+/** Files called `name` directly inside `folderId`, newest first. Drive only lists files this app created or the user picked. */
+export async function findFiles(token: string, folderId: string, name: string): Promise<DriveFile[]> {
+  const quoted = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  const query = `'${folderId}' in parents and name = '${quoted}' and trashed = false`
+  const url = `${FILES}?q=${encodeURIComponent(query)}&orderBy=${encodeURIComponent('modifiedTime desc')}&fields=${encodeURIComponent(`files(${FIELDS})`)}&pageSize=10`
+  const body = (await (await call(url, {}, token)).json()) as { files?: unknown[] }
+  return (body.files ?? []).map((row) => toFile(row))
+}
+
 /** Folder ids a file is in. Usually one. */
 export async function parentsOf(fileId: string, token: string): Promise<string[]> {
   const response = await call(`${FILES}/${encodeURIComponent(fileId)}?fields=parents`, {}, token)
   return ((await response.json()) as { parents?: string[] }).parents ?? []
+}
+
+/** The folder a file sits in, by name. A file at the root gives `My Drive`. */
+export async function folderOf(fileId: string, token: string): Promise<{ id: string; name: string }> {
+  const [parent] = await parentsOf(fileId, token)
+  if (!parent) return { id: 'root', name: 'My Drive' }
+  const folder = await getFile(parent, token)
+  return { id: folder.id, name: folder.name }
 }
 
 /** Moves a file into `folderId`. The file keeps its id, so links to it stay valid. */
@@ -73,7 +96,8 @@ export async function uploadFile(
   options: { name: string; mimeType: string; fileId?: string; parentId?: string },
 ): Promise<DriveFile> {
   const base = options.fileId ? `${UPLOAD}/${encodeURIComponent(options.fileId)}` : UPLOAD
-  const metadata: Record<string, unknown> = { name: options.name, mimeType: options.mimeType }
+  // The name and folder are set once, when the file is created. An update only replaces the content, so it never renames a file.
+  const metadata: Record<string, unknown> = options.fileId ? {} : { name: options.name, mimeType: options.mimeType }
   if (options.parentId && !options.fileId) metadata.parents = [options.parentId]
   const session = await call(
     `${base}?uploadType=resumable`,
