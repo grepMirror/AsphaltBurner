@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { useActivities } from '../activities'
 import { CHANGE_EVENT, removePlannerData } from '../profileData'
 import { activeProfile, applySettings, resetProfile, setDriveLink, stampSettings, type DriveLink, type Profile, type ProfileBook } from '../profiles'
-import { clearSession, getAccessToken, hasSession, SignInError } from '../google/auth'
+import { clearSession, getAccessToken, hasSession, signInNote, SignInError } from '../google/auth'
 import { googleConfigured } from '../google/config'
 import { accountEmail, downloadFile, DriveError, findFiles, folderOf, moveFile, parentsOf, uploadFile, type DriveFile } from '../google/drive'
 import { pickDrive } from '../google/picker'
@@ -216,6 +216,14 @@ export function DriveProvider({ book, onBook, onPulled, children }: Props) {
     }
     void runSync(false, false)
   }, [profile.id, linked?.fileId])
+
+  // Sign-in leaves the page and comes back. When Google refused, the card says why. A linked profile gets it from its own sync.
+  useEffect(() => {
+    const note = signInNote()
+    if (!note) return
+    setStatus('error')
+    setMessage(note)
+  }, [])
 
   // Coming back to the tab pulls changes made on another device.
   useEffect(() => {
