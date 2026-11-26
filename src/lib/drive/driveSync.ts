@@ -63,9 +63,9 @@ export async function syncWithDrive(profileId: string, profile: Profile, link: D
 }
 
 /** Creates the profile file, in the given folder or at the top of the Drive. */
-export async function createProfileFile(profileId: string, profile: Profile, token: string, parentId?: string): Promise<DriveLink> {
+export async function createProfileFile(profileId: string, profile: Profile, token: string, folder: { id: string; name: string }): Promise<DriveLink> {
   const now = new Date().toISOString()
   const doc = buildDoc(profileId, profile, now)
-  const file = await uploadFile(token, docBlob(doc), { name: PROFILE_FILE, mimeType: JSON_TYPE, parentId })
-  return { fileId: file.id, lastVersion: file.version, lastSyncAt: now, canEdit: file.canEdit, archiveId: null }
+  const file = await uploadFile(token, docBlob(doc), { name: PROFILE_FILE, mimeType: JSON_TYPE, parentId: folder.id })
+  return { fileId: file.id, lastVersion: file.version, lastSyncAt: now, canEdit: file.canEdit, archiveId: null, folderName: folder.name }
 }

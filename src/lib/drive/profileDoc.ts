@@ -4,10 +4,10 @@ import { normalizeBlocks, loadBlocks, storeBlocks, type BlockBook } from '../blo
 import { cleanProfile, type HrSettings, type Profile } from '../profiles'
 import { loadTombstones, NO_TOMBSTONES, readTombstones, stableJson, storeTombstones, type Tombstones } from '../stamp'
 
-/** Name of the profile file in Drive. */
-export const PROFILE_FILE = 'asphaltburner-profile.json'
-/** Name of the Strava archive file in Drive. */
-export const ARCHIVE_FILE = 'asphaltburner-strava-archive.zip'
+/** The profile file always has this name in Drive, so any device finds it in the folder whatever its local profile is called. One profile per folder. */
+export const PROFILE_FILE = 'AsphaltBurner - profile.json'
+/** The Strava archive always has this name, next to the profile file. */
+export const ARCHIVE_FILE = 'AsphaltBurner - archive.zip'
 
 const SCHEMA = 1
 
