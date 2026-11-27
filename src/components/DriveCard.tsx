@@ -19,6 +19,9 @@ export const DRIVE_TONE: Record<DriveStatus, string> = {
   error: 'text-red-200',
 }
 
+/** DOM id of the Drive card, so the header badge can open the profile popup on it. */
+export const DRIVE_CONNECTOR_ID = 'drive-connector'
+
 const BUTTON = 'rounded-md border px-3 py-2 text-sm disabled:opacity-50'
 const PRIMARY = `${BUTTON} border-sky-300/40 bg-sky-400/10 text-sky-100`
 const QUIET = `${BUTTON} border-white/15 text-white/70 hover:text-white`
@@ -34,7 +37,7 @@ export function DriveCard() {
 
   if (!drive.configured) {
     return (
-      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <section id={DRIVE_CONNECTOR_ID} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
           <DriveIcon />
           Google Drive
@@ -45,7 +48,7 @@ export function DriveCard() {
   }
 
   return (
-    <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <section id={DRIVE_CONNECTOR_ID} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
           <DriveIcon />

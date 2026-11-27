@@ -1,6 +1,7 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { NAME_MAX, type HrSettings, type Profile } from '../lib/profiles'
 import { ConnectorsPanel } from './Connectors'
+import { DRIVE_CONNECTOR_ID } from './DriveCard'
 import { HeartRatePanel } from './HeartRatePanel'
 import { ImportZip } from './ImportZip'
 import { Modal } from './Modal'
@@ -9,13 +10,20 @@ type Props = {
   profile: Profile
   /** Bumped when a sync or an erase changed the profile under the screen, so the fields start again from it. */
   revision: number
+  /** Scrolls the popup to the Google Drive connector when it opens. */
+  focusDrive?: boolean
   onRename: (name: string) => void
   onHr: (patch: Partial<HrSettings>) => void
   onClose: () => void
 }
 
 /** Profile popup: the name, the heart rate, the activities import and the connectors. */
-export function ProfileModal({ profile, revision, onRename, onHr, onClose }: Props) {
+export function ProfileModal({ profile, revision, focusDrive = false, onRename, onHr, onClose }: Props) {
+  useEffect(() => {
+    if (!focusDrive) return
+    document.getElementById(DRIVE_CONNECTOR_ID)?.scrollIntoView({ block: 'center' })
+  }, [focusDrive])
+
   return (
     <Modal title="Profile" onClose={onClose} wide>
       <div className="flex flex-col gap-6">

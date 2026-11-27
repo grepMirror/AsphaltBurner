@@ -8,9 +8,7 @@ import { LoadPage } from './pages/LoadPage'
 import { PlannerPage } from './pages/PlannerPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { activeProfile, loadProfiles, renameProfile, saveProfiles, updateHr, type ProfileBook } from './lib/profiles'
-import { DRIVE_LABEL, DRIVE_TONE } from './components/DriveCard'
 import { DrivePrompt } from './components/DrivePrompt'
-import { DriveIcon } from './components/icons'
 import { DriveProvider, useDrive, type DriveStatus } from './lib/drive/DriveProvider'
 import { noteChange, removePlannerData } from './lib/profileData'
 import { bundleKeyOf, clearBundle, clearGarmin, clearZip } from './lib/store'
@@ -105,6 +103,12 @@ function Shell({
   const { progress, error } = useActivities()
   const drive = useDrive()
   const [profileOpen, setProfileOpen] = useState(false)
+  /** The popup opens scrolled to the Drive connector when it comes from the "Not saved" badge. */
+  const [focusDrive, setFocusDrive] = useState(false)
+  const openProfile = (toDrive: boolean) => {
+    setFocusDrive(toDrive)
+    setProfileOpen(true)
+  }
   const profile = activeProfile(book)
   const { maxHr, restHr, method, zones } = profile
 
@@ -118,8 +122,8 @@ function Shell({
   return (
     <div className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-black/80 pt-[env(safe-area-inset-top)] backdrop-blur">
-        <div className={`${PAGE_BOX} flex h-14 items-center gap-6`}>
-          <div className="flex items-center gap-2 font-display text-sm font-semibold tracking-[0.16em]">
+        <div className="flex h-14 w-full items-center gap-6 px-4 sm:px-6">
+          <div className="flex items-center gap-2.5 font-display text-base font-bold tracking-[0.1em] lg:text-xl">
             <Mark />
             AsphaltBurner
           </div>
@@ -127,8 +131,8 @@ function Shell({
             {nav(false)}
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            {profile.drive ? <DriveBadge status={drive.status} onOpen={() => setProfileOpen(true)} /> : null}
-            <ProfileButton name={profile.name} onOpen={() => setProfileOpen(true)} />
+            <DriveBadge status={drive.status} onOpen={() => openProfile(true)} />
+            <ProfileButton name={profile.name} onOpen={() => openProfile(false)} />
           </div>
         </div>
       </header>
@@ -168,6 +172,7 @@ function Shell({
         <ProfileModal
           profile={profile}
           revision={revision}
+          focusDrive={focusDrive}
           onRename={(name) => onBook(renameProfile(book, profile.id, name))}
           onHr={(patch) => onBook(updateHr(book, profile.id, patch))}
           onClose={() => setProfileOpen(false)}
@@ -181,19 +186,27 @@ function Shell({
   )
 }
 
-/** Header indicator of the Google Drive link of the active profile. It opens the profile popup. */
+/**
+ * Header indicator: is the profile saved in Google Drive? "Saved" only when the last sync worked.
+ * Anything else (not connected, signed out, view only, problem) reads "Not saved" in red. It opens the profile popup on the Drive connector.
+ */
 function DriveBadge({ status, onOpen }: { status: DriveStatus; onOpen: () => void }) {
+  const saving = status === 'syncing'
+  const saved = status === 'saved'
+  const label = saving ? 'Saving…' : saved ? 'Saved' : 'Not saved'
+  const tone = saving ? 'text-sky-200' : saved ? 'text-emerald-300' : 'text-red-400'
+  const hint = saved ? 'Saved in Google Drive' : saving ? 'Saving to Google Drive' : 'Not saved. Open the Google Drive connector'
   return (
     <button
       type="button"
       aria-haspopup="dialog"
-      aria-label={`Google Drive: ${DRIVE_LABEL[status]}`}
-      title={`Google Drive: ${DRIVE_LABEL[status]}`}
+      aria-label={hint}
+      title={hint}
       onClick={onOpen}
-      className="flex h-9 items-center gap-2 rounded-lg px-2 hover:bg-white/5"
+      className="flex h-9 items-center gap-1.5 rounded-lg px-2 hover:bg-white/5"
     >
-      <DriveIcon />
-      <span className={`hidden text-xs sm:block ${DRIVE_TONE[status]}`}>{DRIVE_LABEL[status]}</span>
+      {saved || saving ? null : <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-red-400" />}
+      <span className={`whitespace-nowrap text-xs font-medium ${tone}`}>{label}</span>
     </button>
   )
 }
@@ -246,11 +259,11 @@ function NavItem({
         event.preventDefault()
         onNavigate(href)
       }}
-      className={`relative ${tab ? 'flex h-14 flex-col items-center justify-center gap-1 px-0.5 text-[10px] leading-none' : 'px-3 py-4 text-sm'} ${active ? 'text-sky-300' : 'text-white/70'}`}
+      className={`relative ${tab ? 'flex h-14 flex-col items-center justify-center gap-1 px-0.5 text-[10px] leading-none' : 'px-2 py-4 text-sm lg:px-3'} ${active ? 'text-sky-300' : 'text-white/70'}`}
     >
       {tab ? <NavIcon href={href} /> : null}
       {children}
-      {active ? <span className={`absolute h-0.5 bg-sky-300 ${tab ? 'inset-x-2 top-0' : 'inset-x-3 bottom-0'}`} /> : null}
+      {active ? <span className={`absolute h-0.5 bg-sky-300 ${tab ? 'inset-x-2 top-0' : 'inset-x-2 bottom-0 lg:inset-x-3'}`} /> : null}
     </a>
   )
 }
@@ -298,13 +311,13 @@ function NavIcon({ href }: { href: PagePath }) {
 
 function Mark() {
   return (
-    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#0B0D12] shadow-[0_0_12px_rgba(251,146,60,0.4),inset_0_0_0_1px_rgba(250,204,21,0.35)]">
+    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#0B0D12] shadow-[0_0_12px_rgba(251,146,60,0.4),inset_0_0_0_1px_rgba(250,204,21,0.35)]">
       <img
         src={`${import.meta.env.BASE_URL}icons/icon_asphaltbuner.svg`}
         alt=""
         width={28}
         height={28}
-        className="h-7 w-7 drop-shadow-[0_0_4px_rgba(250,204,21,0.75)]"
+        className="h-8 w-8 drop-shadow-[0_0_4px_rgba(250,204,21,0.75)]"
       />
     </span>
   )

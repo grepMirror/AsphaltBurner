@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { PAGE_INNER } from '../components/layout'
+import { PAGE_INNER, SUBTAB_ICON, SUBTAB_ROW, subtabClass } from '../components/layout'
 import { ContextMenu, menuPoint } from '../components/ContextMenu'
 import { PlanPicker } from '../components/PlanPicker'
 import { PlanStats } from '../components/PlanStats'
@@ -351,7 +351,7 @@ function Panes({ pane, onPane, picker }: { pane: Pane; onPane: (pane: Pane) => v
   ]
   return (
     <div className="flex items-center justify-between gap-4">
-      <div role="tablist" aria-label="Planner" className="flex gap-5 overflow-x-auto">
+      <div role="tablist" aria-label="Planner" className={SUBTAB_ROW}>
         {items.map((item) => {
           const on = pane === item.id
           return (
@@ -360,11 +360,14 @@ function Panes({ pane, onPane, picker }: { pane: Pane; onPane: (pane: Pane) => v
               type="button"
               role="tab"
               aria-selected={on}
+              aria-label={item.label}
+              title={item.label}
               onClick={() => onPane(item.id)}
-              className={`flex shrink-0 items-center gap-2 py-2 text-sm ${on ? 'text-white' : 'text-white/55 hover:text-white'}`}
+              className={subtabClass(on)}
             >
-              {item.id === 'week' ? <PlanLed on={on} /> : <StatsLed on={on} />}
-              <span className={on ? 'border-b border-white pb-0.5' : 'border-b border-transparent pb-0.5'}>{item.label}</span>
+              <span className={SUBTAB_ICON}>{item.id === 'week' ? <PlanLed on={on} /> : <StatsLed on={on} />}</span>
+              {/* Phone: icon only. The label comes back from the sm breakpoint up. */}
+              <span className={`hidden sm:inline ${on ? 'border-b border-white pb-0.5' : 'border-b border-transparent pb-0.5'}`}>{item.label}</span>
             </button>
           )
         })}
@@ -377,7 +380,7 @@ function Panes({ pane, onPane, picker }: { pane: Pane; onPane: (pane: Pane) => v
 /** Same LED as the profile tabs: dim when off, lit with a glow when on. */
 function PlanLed({ on }: { on: boolean }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={on ? 'text-[#38bdf8] drop-shadow-[0_0_6px_rgba(56,189,248,0.95)]' : 'text-white/30'}>
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={on ? 'text-[#38bdf8] drop-shadow-[0_0_6px_rgba(56,189,248,0.95)]' : 'text-white/30'}>
       <rect x="2.2" y="3.2" width="11.6" height="10.4" rx="2" fill={on ? 'currentColor' : 'none'} fillOpacity={on ? 0.25 : 0} />
       <path d="M2.2 6.6h11.6M5.4 2v2.4M10.6 2v2.4" />
     </svg>
@@ -386,7 +389,7 @@ function PlanLed({ on }: { on: boolean }) {
 
 function StatsLed({ on }: { on: boolean }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true" className={on ? 'text-[#4ade80] drop-shadow-[0_0_6px_rgba(74,222,128,0.95)]' : 'text-white/30'}>
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true" className={on ? 'text-[#4ade80] drop-shadow-[0_0_6px_rgba(74,222,128,0.95)]' : 'text-white/30'}>
       <rect x="2.4" y="8.4" width="2.6" height="5" rx="0.6" fill={on ? 'currentColor' : 'none'} />
       <rect x="6.7" y="4.6" width="2.6" height="8.8" rx="0.6" fill={on ? 'currentColor' : 'none'} />
       <rect x="11" y="6.6" width="2.6" height="6.8" rx="0.6" fill={on ? 'currentColor' : 'none'} />

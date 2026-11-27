@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Line, useXAxisScale, useYAxisScale } from 'recharts'
-import { PAGE_BOX } from '../components/layout'
+import { LED_SKY, PAGE_BOX, TITLE } from '../components/layout'
 import { BaseChart } from '../components/BaseChart'
 import { Segment } from '../components/Segment'
 import { formatDuration } from '../lib/format'
@@ -78,7 +78,12 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
     <div className={`${PAGE_BOX} flex flex-col gap-4 pb-16 pt-6`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight">Training load</h1>
+            <h1 className={`flex items-center gap-2.5 ${TITLE}`}>
+              <span className={LED_SKY}>
+                <LoadMark size={22} />
+              </span>
+              Training load
+            </h1>
             <p className="mt-1 text-sm text-white/55">{windowLabel}</p>
           </div>
           {ready ? (
@@ -128,10 +133,11 @@ export function LoadPage({ maxHr, restHr, method, split }: { maxHr: number; rest
               type="button"
               aria-pressed={showLoad}
               onClick={() => setShowLoad((current) => !current)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs sm:py-1 ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
+              aria-label={byDay ? 'Day change' : 'Week change'}
+              title={byDay ? 'Day change' : 'Week change'}
+              className={`flex items-center rounded-md px-2 py-1.5 sm:py-1 ${showLoad ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-white/55'}`}
             >
               <LoadMark />
-              {byDay ? 'Day change' : 'Week change'}
             </button>
           </div>
 
@@ -299,9 +305,9 @@ function LoadWindow({ rows }: { rows: LoadRow[] }) {
   )
 }
 
-function LoadMark() {
+function LoadMark({ size = 16 }: { size?: number }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2 11.5 5.5 8l2.2 2.2L14 4" />
       <path d="M10 4h4v4" />
     </svg>

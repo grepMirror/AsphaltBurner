@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityMap } from '../components/ActivityMap'
 import { Collapse } from '../components/Collapse'
+import { LED_GREEN, TITLE } from '../components/layout'
 import { SessionView } from '../components/SessionView'
 import { SportIcon } from '../components/SportIcon'
 import { VolumeChart } from '../components/VolumeChart'
@@ -11,7 +12,7 @@ import { formatWindow, inPeriod, weekWindow, windowBounds } from '../lib/period'
 import type { Activity, DateWindow, MetricId, RangeId, Sport } from '../types'
 
 export function ActivitiesPage({ maxHr, restHr, method, split }: { maxHr: number; restHr: number; method: HrMethod; split: ZoneEdges }) {
-  const { ready, activities, report, clear } = useActivities()
+  const { ready, activities, report } = useActivities()
   const [sports, setSports] = useState<Set<Sport>>(() => new Set(SPORTS))
   const [range, setRange] = useState<RangeId>('12m')
   const [custom, setCustom] = useState<DateWindow | null>(null)
@@ -79,20 +80,11 @@ export function ActivitiesPage({ maxHr, restHr, method, split }: { maxHr: number
 
   return (
     <div className="relative">
-      <header className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Activities</h1>
-          <p className="mt-1 hidden text-sm text-white/55 sm:block">Sessions from a Strava export. A direct connector can replace the zip later.</p>
-        </div>
-        {activities.length > 0 ? (
-          <button
-            type="button"
-            className="rounded-md border border-white/15 px-3 py-2 text-sm text-white/70"
-            onClick={() => clear()}
-          >
-            Clear
-          </button>
-        ) : null}
+      <header className="mb-4">
+        <h1 className={`flex items-center gap-2.5 ${TITLE}`}>
+          <SportIcon sport="run" className={`h-6 w-6 ${LED_GREEN}`} />
+          Activities
+        </h1>
       </header>
 
       {report && report.source === 'zip' ? (
