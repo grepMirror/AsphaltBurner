@@ -12,3 +12,8 @@ createRoot(root).render(
     <App />
   </StrictMode>,
 )
+
+// Production only: the install-only worker is not needed on the dev server.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`)
+}
