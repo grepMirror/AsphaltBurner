@@ -20,6 +20,7 @@ export function HeartRatePanel({ values, onChange }: { values: HeartRateValues; 
   const [draft, setDraft] = useState(String(maxHr))
   const [restDraft, setRestDraft] = useState(String(restHr))
   const [zoneDraft, setZoneDraft] = useState(() => zones.map(String))
+  const [showNote, setShowNote] = useState(false)
 
   const apply = (raw: string) => {
     setDraft(raw)
@@ -80,8 +81,9 @@ export function HeartRatePanel({ values, onChange }: { values: HeartRateValues; 
           ]}
           onChange={(next) => onChange({ method: next })}
         />
-        {method === 'karvonen' ? <KarvonenNote /> : null}
+        {method === 'karvonen' ? <KarvonenToggle open={showNote} onToggle={() => setShowNote((current) => !current)} /> : null}
       </div>
+      {method === 'karvonen' && showNote ? <KarvonenNote /> : null}
       <div className="mt-3 flex gap-2">
         <BpmField label="Max heart rate" icon={<HeartIcon />} value={draft} min={100} max={230} onChange={apply} onCommit={commit} />
         {method === 'karvonen' ? <BpmField label="Resting heart rate" hint="Rest HR" icon={<RestIcon />} value={restDraft} min={30} max={100} onChange={applyRest} onCommit={commitRest} /> : null}
@@ -167,25 +169,36 @@ function BpmField({
   )
 }
 
+/** Info button next to the method switch. It only toggles the note below the row, so no popup is clipped by the modal. */
+function KarvonenToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Karvonen method"
+      aria-expanded={open}
+      onClick={onToggle}
+      className={`flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full ring-1 ring-inset ${open ? 'text-sky-200 ring-sky-300/50' : 'text-white/50 ring-white/25 hover:text-white/80'}`}
+    >
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
+        <path d="M8 7.2v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+        <circle cx="8" cy="4.6" r="0.75" fill="currentColor" />
+      </svg>
+    </button>
+  )
+}
+
+/** Explanation of the Karvonen (heart-rate reserve) method. Rendered in the normal flow so the scrolling popup shows it in full. */
 function KarvonenNote() {
   return (
-    <details className="relative">
-      <summary aria-label="Karvonen method" className="flex h-5 w-5 cursor-pointer list-none items-center justify-center rounded-full text-white/50 ring-1 ring-inset ring-white/25 marker:content-none [&::-webkit-details-marker]:hidden">
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.25" />
-          <path d="M8 7.2v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-          <circle cx="8" cy="4.6" r="0.75" fill="currentColor" />
-        </svg>
-      </summary>
-      <div className="absolute right-0 top-7 z-20 w-72 max-w-[calc(100vw-4rem)] rounded-lg border border-white/15 bg-[#0b0e14] p-3 text-left text-xs leading-relaxed text-white/70 shadow-lg">
-        <p className="font-medium text-white/85">Target HR = resting HR + % × (max HR − resting HR)</p>
-        <ul className="mt-2 space-y-1.5">
-          <li>Zones are personal. Two runners with the same max but different resting rates (45 versus 70) do not share the same zones. Percent of max would give them the same thresholds.</li>
-          <li>It tracks real effort more closely. A percent of heart-rate reserve is close to a percent of VO2 reserve.</li>
-          <li>Resting heart rate changes over time, so comparing a long period is unreliable.</li>
-        </ul>
-      </div>
-    </details>
+    <div className="mt-3 rounded-lg border border-white/15 bg-white/[0.03] p-3 text-left text-xs leading-relaxed text-white/70">
+      <p className="font-medium text-white/85">Target HR = resting HR + % × (max HR − resting HR)</p>
+      <ul className="mt-2 space-y-1.5">
+        <li>Zones are personal. Two runners with the same max but different resting rates (45 versus 70) do not share the same zones. Percent of max would give them the same thresholds.</li>
+        <li>It tracks real effort more closely. A percent of heart-rate reserve is close to a percent of VO2 reserve.</li>
+        <li>Resting heart rate changes over time, so comparing a long period is unreliable.</li>
+      </ul>
+    </div>
   )
 }
 

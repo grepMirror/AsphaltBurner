@@ -114,17 +114,10 @@ export function MonthCalendar({ model, sports, onToggleSport, selectedKey, actio
                 ))}
               </div>
               {showTotals ? <div className="flex flex-col justify-center gap-3 rounded-[14px] border bg-[#12161E] px-4 py-3.5" style={{ borderColor: week.border }}>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-semibold">{week.label}</span>
-                    {week.isCurrent ? <span className="rounded-full bg-[#E8EAF0] px-2 py-0.5 text-[11px] font-semibold text-[#0B0D12]">This week</span> : null}
-                  </div>
-                  <span className="text-xs text-[#9AA3B5]">{week.range}</span>
-                </div>
                 <div className="grid grid-cols-4 gap-2">
                   {week.metrics.map((metric) => (
-                    <div key={metric.label} className="flex min-w-0 flex-col gap-1">
-                      <div className="flex items-baseline gap-0.5">
+                    <div key={metric.label} className="flex min-w-0 flex-col items-center gap-1 text-center">
+                      <div className="flex items-baseline justify-center gap-0.5">
                         <span className="cal-num text-lg font-semibold leading-tight tabular-nums">{metric.value}</span>
                         {metric.unit ? <span className="text-[11px] text-[#9AA3B5]">{metric.unit}</span> : null}
                       </div>

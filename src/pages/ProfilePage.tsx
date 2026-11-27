@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 import { GRID, TICK } from '../components/chartChrome'
-import { PAGE_BOX } from '../components/layout'
+import { PAGE_BOX, SUBTAB_ICON, SUBTAB_ROW, subtabClass } from '../components/layout'
 import { ChartFrame, svgLocalPoint } from '../components/ChartFrame'
 import { ChartNote } from '../components/ChartNote'
 import { Segment } from '../components/Segment'
@@ -29,7 +29,7 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
   return (
     <div className={`${PAGE_BOX} flex flex-col pb-16 pt-2`}>
       <h1 className="sr-only">Profile</h1>
-      <div role="tablist" aria-label="Profile" className="flex gap-5 overflow-x-auto">
+      <div role="tablist" aria-label="Profile" className={SUBTAB_ROW}>
         {TABS.map((item) => {
           const on = tab === item.id
           return (
@@ -38,11 +38,14 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
               type="button"
               role="tab"
               aria-selected={on}
+              aria-label={item.label}
+              title={item.label}
               onClick={() => setTab(item.id)}
-              className={`flex shrink-0 items-center gap-2 py-2 text-sm ${on ? 'text-white' : 'text-white/55 hover:text-white'}`}
+              className={subtabClass(on)}
             >
-              {item.id === 'physiology' ? <HeartLed on={on} /> : <SpeedLed on={on} />}
-              <span className={on ? 'border-b border-white pb-0.5' : 'border-b border-transparent pb-0.5'}>{item.label}</span>
+              <span className={SUBTAB_ICON}>{item.id === 'physiology' ? <HeartLed on={on} /> : <SpeedLed on={on} />}</span>
+              {/* Phone: icon only. The label comes back from the sm breakpoint up. */}
+              <span className={`hidden sm:inline ${on ? 'border-b border-white pb-0.5' : 'border-b border-transparent pb-0.5'}`}>{item.label}</span>
             </button>
           )
         })}
@@ -55,7 +58,7 @@ export function ProfilePage({ maxHr, restHr, method, zones }: { maxHr: number; r
 
 function HeartLed({ on }: { on: boolean }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className={on ? 'text-[#38bdf8] drop-shadow-[0_0_6px_rgba(56,189,248,0.95)]' : 'text-white/30'}>
+    <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true" className={on ? 'text-[#38bdf8] drop-shadow-[0_0_6px_rgba(56,189,248,0.95)]' : 'text-white/30'}>
       <path d="M8 13.2S2.6 9.6 2.6 6.3A2.7 2.7 0 0 1 8 5.2a2.7 2.7 0 0 1 5.4 1.1c0 3.3-5.4 6.9-5.4 6.9Z" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" />
     </svg>
   )
@@ -66,7 +69,7 @@ function SpeedLed({ on }: { on: boolean }) {
   return (
     <span
       aria-hidden
-      className={`inline-block h-5 w-5 shrink-0 ${on ? 'bg-[#ef4444] drop-shadow-[0_0_6px_rgba(239,68,68,0.95)]' : 'bg-white/30'}`}
+      className={`inline-block h-full w-full shrink-0 ${on ? 'bg-[#ef4444] drop-shadow-[0_0_6px_rgba(239,68,68,0.95)]' : 'bg-white/30'}`}
       style={{
         WebkitMaskImage: `url("${src}")`,
         maskImage: `url("${src}")`,
